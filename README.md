@@ -43,9 +43,14 @@ boardeye calibrate starting-position.jpg
 ```
 
 That is a photo of your own board with all 32 pieces on their home squares.
-**Take two, in different light and from different angles** — measured on the
-test fixtures, two photos held 97% accuracy across varied conditions where one
-photo fell to 78% when the lighting changed:
+
+**Make it a good photo.** This is the single highest-leverage thing you can do:
+sharp, evenly lit, board filling the frame. Measured on photograph-like test
+images, a good calibration photo gave 85% piece accuracy and a poor one 68%,
+and no amount of extra photos closed that gap.
+
+Taking a second one is cheap insurance rather than an improvement — it barely
+helps a good first photo, but it pulls a bad first photo back up to about 84%:
 
 ```bash
 boardeye calibrate start-1.jpg start-2.jpg
@@ -109,22 +114,43 @@ once more under the current lighting usually fixes it.
 
 ## What accuracy to expect
 
-Measured on synthetic test boards across six positions and four photographic
-conditions, after calibrating from two photos:
+The test suite generates boards two ways, and the difference between them is
+the most useful thing in this section.
 
-| | |
+The first draws flat 2-D piece symbols on flat colour under even light. The
+second renders pieces that stand up and lean over the square behind them, cast
+shadows onto their neighbours, on wood grain, under a lighting gradient, with
+clutter on the table, camera roll and JPEG artefacts.
+
+| | flat diagrams | photograph-like |
+| --- | --- | --- |
+| Pieces identified correctly | 97.7% | **86%** |
+| Corrections needed per board | ~1 | **~4** |
+| Occupancy errors | none | ~2 per board |
+| Piece colour errors | none | ~1 per board |
+
+**The flat number overstated real performance by about ten points, and the
+honest figure is the right-hand column.** In good conditions it reaches 88%,
+in poor ones 76%. Almost all the loss is in piece *type*: where a piece is and
+what colour it is stay reliable, because those come from geometry rather than
+from a learned model.
+
+Even the right-hand column is not a photograph of your board, and your set,
+lighting and camera will differ. What it is good for is the shape of the
+problem: expect to fix a few pieces per position, which is why the review
+screen is built for fast correction rather than for being trusted blindly.
+
+Board detection, on the same photograph-like images:
+
+| conditions | board found and trusted |
 | --- | --- |
-| Pieces identified correctly | **97.7%** |
-| Boards needing no correction at all | 14 of 24 |
-| Errors appearing in the ten flagged squares | 10 of 12 |
-| Occupancy and piece colour | no errors |
+| good | 10 of 10 |
+| typical | 10 of 10 |
+| poor | 7 of 10 |
 
-**These numbers come from rendered images, not photographs of a real board.**
-They show the pipeline works and give a sense of the shape of its errors. They
-are not a prediction of what you will get on a wooden set under a kitchen
-light, which will be worse. The only way to find out is to try it, which is why
-the review screen exists and why it is built for fast correction rather than
-for being trusted blindly.
+The three failures are the system declining rather than guessing — it scores
+its own detection and refuses below a threshold, which sends you to the
+"click the four corners" fallback instead of handing you a scrambled board.
 
 Some things worth knowing about how it fails:
 
@@ -145,8 +171,6 @@ Some things worth knowing about how it fails:
 - **Impossible material is caught automatically.** If a misread leaves you with
   nine pawns or three bishops that no promotion could explain, the page says
   so before you export.
-
----
 
 ## The live scanner
 
@@ -180,10 +204,20 @@ showing the detected board:
 .venv/bin/python -m pytest
 ```
 
-118 tests, about 30 seconds. They cover FEN handling, board detection,
+130 tests, about 90 seconds. They cover FEN handling, board detection,
 occupancy and colour, the classifier and calibration, and the editor's server
-side. Board images are generated from known positions by `tests/render.py`, so
-everything has ground truth without needing photographs.
+side. Board images are generated from known positions, so everything has
+ground truth without needing photographs.
+
+There are two generators, and the split matters:
+
+- `tests/render.py` draws flat piece symbols on flat colour. Fast, and fine
+  for geometry and plumbing.
+- `tests/photoreal.py` renders standing pieces that overhang the square
+  behind, cast shadows, on wood grain under uneven light with table clutter,
+  camera roll and JPEG artefacts. Slower, and the only one whose numbers are
+  worth quoting — the flat generator flattered the pipeline by ten points, and
+  `tests/test_photoreal.py` holds the thresholds that survived the harder one.
 
 Layout:
 

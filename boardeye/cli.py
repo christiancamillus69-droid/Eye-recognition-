@@ -93,10 +93,12 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         print(f"  {classifier.stats.summary()}")
     if len(args.photos) == 1:
         print(
-            "\nOne calibration photo works, but two taken in different light and from\n"
-            "different angles measurably beat it — accuracy held at 97% across varied\n"
-            "scan conditions with two, against 78-94% with one. Consider running\n"
-            "'boardeye calibrate' again with a second photo."
+            "\nOne photo is enough if it is a good one. What matters most is that the\n"
+            "calibration photo is sharp, evenly lit and fills the frame — on the test\n"
+            "fixtures a good single photo reached 85% piece accuracy while a poor one\n"
+            "managed 68%.\n"
+            "Adding a second photo is cheap insurance: it barely improves on a good\n"
+            "first photo, but it pulls a bad one back up to about 84%."
         )
     return 0
 

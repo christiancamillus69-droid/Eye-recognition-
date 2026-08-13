@@ -22,9 +22,19 @@ import numpy as np
 BOARD_PX = 640
 
 #: Below this checkerboard score, a detection is not trustworthy enough to use
-#: without the user confirming the corners. Calibrated against the synthetic
-#: fixtures plus a margin; see tests/test_detect.py.
-MIN_ACCEPTABLE_SCORE = 0.35
+#: without the user confirming the corners.
+#:
+#: Calibrated by measuring score against occupancy errors on photo-like
+#: fixtures: at 0.75 and above a reading averaged 1.5 wrong squares out of 64,
+#: between 0.60 and 0.75 about 5, and between 0.45 and 0.60 it jumped to 16
+#: with a worst case of 40 — a board so misaligned that presenting it as found
+#: would waste more of the user's time than admitting defeat. Non-boards
+#: (noise, flat colour, stripes) score below 0.25, so the gap is comfortable.
+MIN_ACCEPTABLE_SCORE = 0.60
+
+#: Detections scoring at least this are left alone rather than refined. See
+#: :func:`_refine_corners` for why polishing a good detection backfires.
+REFINE_ABOVE_SCORE = 0.72
 
 
 class BoardNotFound(Exception):
@@ -107,32 +117,90 @@ def checkerboard_score(warped: np.ndarray) -> float:
     return float(abs(correlation)) if np.isfinite(correlation) else 0.0
 
 
-def _quad_from_contours(image: np.ndarray) -> list[np.ndarray]:
-    """Candidate quads from the largest four-sided contours in the image."""
+def _binarisations(image: np.ndarray, thorough: bool) -> list[np.ndarray]:
+    """Several ways of turning the photo into edges worth tracing.
+
+    One fixed Canny threshold is enough for a crisp render and not nearly
+    enough for a photograph. Blur, JPEG artefacts and a low-contrast board
+    against a wooden table can each leave the board's outline too faint for a
+    given threshold, and the failure is silent: no contour, no candidate, and
+    the detector falls back to something absurd. Deriving thresholds from the
+    image's own median, and adding a threshold-based view that ignores edge
+    strength entirely, means a photo has to defeat all of them at once.
+    """
     grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     grey = cv2.GaussianBlur(grey, (5, 5), 0)
-    edges = cv2.Canny(grey, 40, 140)
+    median = float(np.median(grey))
+
+    variants: list[np.ndarray] = []
+    ratios = ((0.66, 1.33), (0.40, 1.10), (0.90, 1.80)) if thorough else ((0.66, 1.33),)
+    for low_ratio, high_ratio in ratios:
+        low = int(max(10, min(255, median * low_ratio)))
+        high = int(max(low + 10, min(255, median * high_ratio)))
+        variants.append(cv2.Canny(grey, low, high))
+
+    if thorough:
+        # Otsu splits board from table by brightness rather than by edges, so
+        # it survives the blur that erases fine edges.
+        _, otsu = cv2.threshold(grey, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.append(cv2.morphologyEx(otsu, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)))
+
+        # Saturation isolates a wooden board from a neutral table even when
+        # both sit at the same brightness.
+        saturation = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)[:, :, 1]
+        _, sat_mask = cv2.threshold(
+            cv2.GaussianBlur(saturation, (5, 5), 0), 0, 255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+        )
+        variants.append(cv2.morphologyEx(sat_mask, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)))
+
+    kernel = np.ones((5, 5), np.uint8)
     # Close gaps where a piece overlaps the board's outer edge, so the outline
     # survives as one contour instead of breaking into arcs.
-    kernel = np.ones((5, 5), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=1)
+    return [cv2.dilate(v, kernel, iterations=1) for v in variants]
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    frame_area = image.shape[0] * image.shape[1]
-    candidates: list[tuple[float, np.ndarray]] = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < frame_area * 0.05:
-            continue
-        perimeter = cv2.arcLength(contour, True)
+
+def _quads_from_contour(contour: np.ndarray) -> list[np.ndarray]:
+    """Every reasonable four-cornered reading of one contour.
+
+    A polygon approximation is the most faithful when it works, but on a
+    ragged outline it returns five or seven vertices and yields nothing at
+    all. The minimum-area rectangle always returns four corners, so it gives
+    the scorer something to judge even when the outline is a mess.
+    """
+    quads: list[np.ndarray] = []
+    perimeter = cv2.arcLength(contour, True)
+    hull = cv2.convexHull(contour)
+
+    for source in (contour, hull):
         for epsilon in (0.02, 0.04, 0.08):
-            approx = cv2.approxPolyDP(contour, epsilon * perimeter, True)
+            approx = cv2.approxPolyDP(source, epsilon * perimeter, True)
             if len(approx) == 4 and cv2.isContourConvex(approx):
-                candidates.append((area, approx.reshape(4, 2).astype(np.float32)))
+                quads.append(approx.reshape(4, 2).astype(np.float32))
                 break
 
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return [quad for _, quad in candidates[:5]]
+    quads.append(cv2.boxPoints(cv2.minAreaRect(contour)).astype(np.float32))
+    return quads
+
+
+def _quad_from_contours(image: np.ndarray, thorough: bool = True) -> list[np.ndarray]:
+    """Candidate board outlines from contours across several binarisations."""
+    frame_area = image.shape[0] * image.shape[1]
+    scored: list[tuple[float, np.ndarray]] = []
+
+    for edges in _binarisations(image, thorough):
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            # A board fills a good part of the frame; anything tiny is clutter,
+            # anything near-total is the frame itself.
+            if not (frame_area * 0.04 < area < frame_area * 0.98):
+                continue
+            for quad in _quads_from_contour(contour):
+                scored.append((area, quad))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [quad for _, quad in scored[: (24 if thorough else 6)]]
 
 
 def _cluster_by_angle(lines: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -216,36 +284,70 @@ def _quad_from_hough(image: np.ndarray) -> list[np.ndarray]:
 
 
 def _refine_corners(
-    image: np.ndarray, corners: np.ndarray, board_px: int, radius: int = 6
+    image: np.ndarray, corners: np.ndarray, board_px: int, thorough: bool = True
 ) -> tuple[np.ndarray, float]:
-    """Nudge each corner a few pixels to maximise the checkerboard score.
+    """Nudge each corner to maximise the checkerboard score.
 
-    Detectors typically land within a handful of pixels of the true corner,
-    which is enough to shift every square boundary and smear piece crops. A
-    short coordinate-descent pass recovers that alignment cheaply.
+    The score is a fine judge of *whether* a region is a chessboard and a
+    biased judge of exactly where its corners are: it reads a little higher
+    just inside the true boundary, where the board's dark outer edge stops
+    contaminating the rim squares. Left unconstrained, hill-climbing on it
+    walks a good detection a third of a square off the answer while reporting
+    an improved score — measured, and it made occupancy worse on clean images.
+
+    Two guards follow from that. Corners may not stray more than a fraction of
+    a square from where detection put them, so this polishes rather than
+    relocates; and the caller only invokes it when the initial score says
+    there is something worth fixing.
     """
-    best = order_corners(corners).copy()
+    start = order_corners(corners).copy()
+    best = start.copy()
     best_score = checkerboard_score(warp_from_corners(image, best, board_px))
 
-    for _ in range(2):  # two sweeps is enough to converge in practice
-        improved = False
-        for index in range(4):
-            for dx, dy in ((-radius, 0), (radius, 0), (0, -radius), (0, radius)):
-                trial = best.copy()
-                trial[index] += (dx, dy)
-                score = checkerboard_score(warp_from_corners(image, trial, board_px))
-                if score > best_score + 1e-4:
-                    best, best_score = trial, score
-                    improved = True
-        if not improved:
-            break
+    # Average the top and bottom edges: under perspective the far edge is much
+    # the shorter, and sizing the limit from it alone would under-budget the
+    # near corners, which is where a tilted photo needs the most correction.
+    square = (
+        float(np.hypot(*(start[1] - start[0]))) + float(np.hypot(*(start[2] - start[3])))
+    ) / 16.0
+
+    # How far a corner may move scales with how little the initial outline is
+    # trusted. A confident detection gets polished; a poor one is allowed to
+    # be substantially wrong and needs room to be corrected.
+    doubt = 1.0 - min(1.0, max(0.0, best_score / REFINE_ABOVE_SCORE))
+    limit = square * (0.40 + 0.85 * doubt)
+
+    radii = (16, 8, 4, 2) if thorough else (6, 2)
+    for radius in radii:
+        for _ in range(3):
+            improved = False
+            for index in range(4):
+                for dx, dy in ((-radius, 0), (radius, 0), (0, -radius), (0, radius)):
+                    trial = best.copy()
+                    trial[index] += (dx, dy)
+                    if np.hypot(*(trial[index] - start[index])) > limit:
+                        continue
+                    score = checkerboard_score(warp_from_corners(image, trial, board_px))
+                    if score > best_score + 1e-4:
+                        best, best_score = trial, score
+                        improved = True
+            if not improved:
+                break
     return best, best_score
 
 
 def detect_board(
-    image: np.ndarray, board_px: int = BOARD_PX, refine: bool = True
+    image: np.ndarray,
+    board_px: int = BOARD_PX,
+    refine: bool = True,
+    thorough: bool = True,
 ) -> Detection:
     """Locate the board and return it rectified.
+
+    ``thorough`` trades time for reliability: it tries more ways of finding
+    the outline and refines over more scales. Leave it on for a still photo,
+    where a fraction of a second is free; turn it off for a live camera feed,
+    where the next frame is another chance anyway.
 
     Raises :class:`BoardNotFound` when nothing scored above zero. A returned
     detection may still be poor — check :attr:`Detection.confident` before
@@ -255,7 +357,7 @@ def detect_board(
         raise BoardNotFound("empty image")
 
     candidates: list[tuple[np.ndarray, str]] = []
-    candidates += [(quad, "contour") for quad in _quad_from_contours(image)]
+    candidates += [(quad, "contour") for quad in _quad_from_contours(image, thorough)]
     candidates += [(quad, "hough") for quad in _quad_from_hough(image)]
     # The whole frame, for photos cropped tight to the board already.
     h, w = image.shape[:2]
@@ -282,9 +384,13 @@ def detect_board(
     if best is None or best.score <= 0.0:
         raise BoardNotFound("no candidate region looked like a chessboard")
 
-    if refine:
+    # Only polish a detection that needs it. Above this score the outline is
+    # already close, and hill-climbing on a biased objective does more harm
+    # than good — measured on photo-like fixtures, refining a clean detection
+    # roughly doubled the occupancy errors.
+    if refine and best.score < REFINE_ABOVE_SCORE:
         refined, refined_score = _refine_corners(
-            image, np.array(best.corners, dtype=np.float32), board_px
+            image, np.array(best.corners, dtype=np.float32), board_px, thorough
         )
         if refined_score > best.score:
             best = Detection(
