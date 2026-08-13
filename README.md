@@ -88,6 +88,7 @@ boardeye scan position.jpg --fen-only
 Other commands:
 
 ```bash
+boardeye check start-1.jpg start-2.jpg   # grade photos, measure expected accuracy
 boardeye scan --camera 0        # read from a webcam instead of a file
 boardeye scan photo.jpg --open lichess   # skip review, go straight to the site
 boardeye status                 # what the model has learned so far
@@ -99,16 +100,49 @@ boardeye scan photo.jpg --debug out/     # dump every intermediate image
 
 ## Taking a good photo
 
-**Shoot from directly above if you can.** A near-overhead phone photo is the
-single biggest thing you can do for accuracy. It removes perspective
-distortion, stops tall pieces from hiding the ones behind them, and makes a
-piece look the same wherever it stands on the board. Angled shots work too —
-calibration learns whatever viewpoint you use — but overhead works best.
+Don't take my word for whether a photo is good enough — ask:
 
-Beyond that: get the board to fill most of the frame, avoid a hard shadow
-falling across part of it, and try to scan under roughly the same lighting you
-calibrated in. If a scan comes out unusually bad, running `boardeye calibrate`
-once more under the current lighting usually fixes it.
+```bash
+boardeye check start-1.jpg start-2.jpg
+```
+
+It grades each photo and names what to change. Given two or more photos of the
+starting position it does something better: it trains on all but one, reads the
+one left out, and since the answer is known, reports **the accuracy you can
+expect on your own board**, along with which piece types it struggles with.
+
+```
+start-1.jpg  [good]
+  detection 0.78 | sharpness 1161 | board fills 63% of frame | clipped 0.6%
+  nothing to improve
+
+  78% of pieces read correctly (64 pieces over 2 held-out photos)
+  weakest piece types — b: 5/8, n: 5/8, q: 1/4
+```
+
+That number is worth more than anything in this README, because it is measured
+on your set, your lighting and your camera rather than on my test fixtures.
+
+What actually matters, in order:
+
+1. **Shoot from as far overhead as you can.** This is the biggest single
+   lever. It removes perspective distortion, stops tall pieces from hiding the
+   ones behind them, and makes a piece look the same wherever it stands.
+   Angled shots do work — calibration learns whatever viewpoint you use — but
+   overhead is where the tool is strongest.
+2. **Get the board filling most of the frame.** Below about 15% of the frame,
+   there are too few pixels per piece to tell a bishop from a pawn.
+3. **Focus and light.** Blur is the most common killer, and it usually comes
+   from a dim room: the phone lengthens the exposure and a handheld shot
+   smears. Turn a light on rather than holding still harder.
+4. **Even light, no glare.** A hard shadow across half the board, or a lamp
+   glaring off polished pieces, costs more than a slightly awkward angle.
+5. **Keep straight-edged clutter out of frame.** A book or a phone beside the
+   board is the same four-sided shape the detector is hunting for.
+
+Then scan under roughly the lighting you calibrated in. If scans start coming
+out poorly, re-running `boardeye calibrate` under the current conditions
+usually fixes it faster than fighting individual positions.
 
 ---
 
@@ -228,6 +262,7 @@ Layout:
 | `classifier.py` | the learned piece-type model and its features |
 | `calibrate.py` | turns a starting-position photo into labelled training data |
 | `pipeline.py` | joins the three stages together |
+| `quality.py` | grades photos; held-out accuracy on a real board |
 | `fen.py` | FEN assembly, castling inference, position and material checks |
 | `export.py` | FEN, Lichess and Chess.com URLs, PGN |
 | `editor/` | the local review page |
@@ -235,6 +270,18 @@ Layout:
 
 Your trained model and its crops live in `~/.boardeye/`. Delete that directory
 to start over.
+
+### Real photographs are the missing piece
+
+Every number quoted here comes from generated images. The pipeline has never
+been run against a photograph of an actual wooden set, because it was built
+somewhere without a camera or access to one.
+
+If you add photos of your board to `samples/` — two of the starting position,
+plus a few real positions with their correct FEN alongside — that gap closes.
+`samples/README.md` explains the layout and how to write the FEN files without
+typing them by hand. With a photo and its right answer, an error stops being
+an impression and becomes something countable, and therefore fixable.
 
 ---
 

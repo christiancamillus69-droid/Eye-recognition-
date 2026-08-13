@@ -171,6 +171,67 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """Grade photos before the user commits to them."""
+    from .quality import holdout_accuracy, inspect
+
+    images = []
+    reports = []
+    for path in args.photos:
+        image = _load_image(path)
+        images.append(image)
+        reports.append(inspect(image, label=path, expect_start=not args.position))
+
+    for report in reports:
+        status = "good" if report.usable and report.score >= 0.75 else (
+            "usable" if report.usable else "PROBLEM"
+        )
+        print(f"\n{report.label}  [{status}]")
+        if report.found_board:
+            print(
+                f"  detection {report.score:.2f} | sharpness {report.sharpness:.0f} | "
+                f"board fills {report.fill:.0%} of frame | clipped {report.clipping:.1%}"
+            )
+        for problem in report.problems:
+            print(f"  ! {problem}")
+        for tip in report.advice:
+            print(f"  - {tip}")
+        if not report.problems and not report.advice:
+            print("  nothing to improve")
+
+    usable = [image for image, report in zip(images, reports) if report.usable]
+    if not args.position and len(usable) >= 2:
+        print("\nMeasuring how well this will actually work on your board…")
+        print("(training on all but one photo, then reading the one left out)")
+        result = holdout_accuracy(usable)
+        if result is None:
+            print("  could not complete the held-out check")
+        else:
+            print(f"\n  {result.summary()}")
+            weak = [
+                f"{piece}: {hit}/{n}"
+                for piece, (hit, n) in result.per_type.items()
+                if n and hit / n < 0.75
+            ]
+            if weak:
+                print(f"  weakest piece types — {', '.join(weak)}")
+                print(
+                    "  Those are the ones to watch in the editor; correcting them "
+                    "there feeds straight back into the model."
+                )
+            if result.accuracy < 0.7:
+                print(
+                    "\n  That is low. Usually it means the calibration photos are "
+                    "soft, unevenly lit, or shot from too low an angle."
+                )
+    elif not args.position and len(usable) == 1:
+        print(
+            "\nGive two or more starting-position photos and this will measure the "
+            "accuracy you can expect on your own board."
+        )
+    return 0 if all(r.usable for r in reports) else 1
+
+
 def cmd_retrain(args: argparse.Namespace) -> int:
     classifier = load_classifier(args.model_dir)
     if not classifier.sample_count:
@@ -254,6 +315,24 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--host", default="127.0.0.1")
     scan.add_argument("--port", type=int, default=5000)
     scan.set_defaults(func=cmd_scan)
+
+    check = subparsers.add_parser(
+        "check",
+        help="grade photos before relying on them",
+        description=(
+            "Measures each photo and says what to change. Given two or more "
+            "photos of the starting position, it also trains on all but one and "
+            "reads the one left out, which measures the accuracy you can expect "
+            "on your own board rather than on test fixtures."
+        ),
+    )
+    check.add_argument("photos", nargs="+", help="photo(s) to grade")
+    check.add_argument(
+        "--position",
+        action="store_true",
+        help="these are ordinary position photos, not the starting position",
+    )
+    check.set_defaults(func=cmd_check)
 
     retrain = subparsers.add_parser(
         "retrain", help="refit the model from stored crops without new photos"
