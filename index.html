@@ -1,0 +1,972 @@
+<title>Orbit Lock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#060a08">
+
+<style>
+  :root{
+    --ground:      #060a08;
+    --ground-lift: #0b1310;
+    --phosphor:    #5ff2a0;
+    --phosphor-dim:#1d4a35;
+    --amber:       #ffb648;
+    --alarm:       #ff4d3d;
+    --bone:        #e8f2ea;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  html,body{ height:100%; overflow:hidden; }
+
+  body{
+    background: var(--ground);
+    color: var(--phosphor);
+    font-family: var(--mono);
+    -webkit-font-smoothing:antialiased;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+
+  #scope{
+    position:fixed; inset:0;
+    display:block;
+    background: var(--ground);
+  }
+
+  /* ---- CRT overlay: scanlines + vignette + a faint bloom ---- */
+  .crt{
+    position:fixed; inset:0;
+    pointer-events:none;
+    z-index:3;
+  }
+  .crt::before{
+    content:""; position:absolute; inset:0;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,.28) 3px,
+      rgba(0,0,0,.28) 4px
+    );
+    opacity:.55;
+  }
+  .crt::after{
+    content:""; position:absolute; inset:0;
+    background: radial-gradient(ellipse at 50% 50%,
+      rgba(0,0,0,0) 42%,
+      rgba(0,0,0,.42) 78%,
+      rgba(0,0,0,.82) 100%);
+  }
+
+  /* ---- HUD ---- */
+  .hud{
+    position:fixed; inset:0;
+    z-index:2;
+    pointer-events:none;
+    padding: clamp(14px, 3.2vmin, 30px);
+    display:grid;
+    grid-template-rows: auto 1fr auto;
+    transition: opacity .3s ease;
+  }
+  /* the panels restate every figure, so the live HUD would just bleed through */
+  body.paneled .hud{ opacity:0; }
+
+  .row{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+
+  .readout{ display:flex; flex-direction:column; gap:.35em; }
+  .readout.right{ align-items:flex-end; text-align:right; }
+
+  .label{
+    font-size: clamp(8px, 1.35vmin, 10px);
+    letter-spacing:.34em;
+    text-transform:uppercase;
+    color: var(--phosphor);
+    opacity:.5;
+  }
+
+  .value{
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(26px, 6.4vmin, 54px);
+    font-weight:700;
+    line-height:.9;
+    letter-spacing:-.02em;
+    color: var(--bone);
+    text-shadow: 0 0 18px rgba(95,242,160,.30);
+  }
+  .value.sm{
+    font-size: clamp(13px, 2.3vmin, 18px);
+    font-weight:600;
+    color: var(--phosphor);
+    text-shadow:none;
+    opacity:.85;
+  }
+
+  /* combo chip: state encoded in form, not just number */
+  .chip{
+    justify-self:center;
+    align-self:start;   /* otherwise the chip stretches the whole middle grid row */
+    margin-top: .9em;
+    font-size: clamp(11px, 2.1vmin, 15px);
+    font-weight:700;
+    letter-spacing:.22em;
+    padding:.42em .85em .38em;
+    border:1px solid var(--phosphor-dim);
+    color: var(--phosphor);
+    background: rgba(6,10,8,.55);
+    opacity:0;
+    transform: translateY(-6px);
+    transition: opacity .18s ease, transform .18s ease, color .18s, border-color .18s;
+    font-variant-numeric: tabular-nums;
+  }
+  .chip.on{ opacity:1; transform:none; }
+  .chip.hot{ color:var(--amber); border-color:rgba(255,182,72,.5); }
+
+  /* ---- energy / overdrive meter ---- */
+  .meter{ display:flex; flex-direction:column; gap:.55em; width:100%; }
+  .meter .label{ display:flex; justify-content:space-between; }
+  .track{
+    height:3px;
+    background: var(--phosphor-dim);
+    position:relative;
+    overflow:hidden;
+  }
+  .fill{
+    position:absolute; inset:0 auto 0 0;
+    width:0%;
+    background: var(--phosphor);
+    box-shadow: 0 0 12px rgba(95,242,160,.7);
+    transition: width .12s linear;
+  }
+  .meter.full .fill{ background: var(--amber); box-shadow:0 0 16px rgba(255,182,72,.85); }
+  .meter.full .label{ color: var(--amber); opacity:1; }
+
+  /* ---- overlay panels ---- */
+  .panel{
+    position:fixed; inset:0;
+    z-index:4;
+    display:grid;
+    place-content:center;
+    justify-items:center;
+    text-align:center;
+    gap: 1.15em;
+    padding: 8vmin;
+    background: radial-gradient(ellipse at 50% 50%, rgba(6,10,8,.72) 0%, rgba(6,10,8,.94) 70%);
+    backdrop-filter: blur(2px);
+    cursor:pointer;
+  }
+  .panel[hidden]{ display:none; }
+
+  .eyebrow{
+    font-size: clamp(8px, 1.4vmin, 10px);
+    letter-spacing:.42em;
+    text-transform:uppercase;
+    opacity:.55;
+  }
+
+  h1{
+    font-size: clamp(34px, 11vmin, 92px);
+    font-weight:700;
+    letter-spacing:.16em;
+    line-height:1;
+    color: var(--bone);
+    text-indent:.16em; /* balance the trailing letterspace */
+    text-shadow: 0 0 34px rgba(95,242,160,.34);
+  }
+  h1 .dim{ color: var(--phosphor); }
+
+  h2{
+    font-size: clamp(22px, 6vmin, 44px);
+    font-weight:700;
+    letter-spacing:.2em;
+    text-indent:.2em;
+    color: var(--alarm);
+    text-shadow: 0 0 28px rgba(255,77,61,.4);
+  }
+
+  .rule{
+    width: min(66vw, 340px);
+    height:1px;
+    background: linear-gradient(to right, transparent, var(--phosphor), transparent);
+    opacity:.42;
+  }
+
+  .brief{
+    font-size: clamp(12px, 2.1vmin, 15px);
+    line-height:1.85;
+    letter-spacing:.06em;
+    color: var(--phosphor);
+    opacity:.82;
+    max-width: 40ch;
+  }
+  .brief b{ color: var(--bone); font-weight:600; }
+
+  .stats{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0,1fr));
+    gap: clamp(18px, 5vw, 46px);
+    margin-top:.4em;
+  }
+  .stat{ display:flex; flex-direction:column; gap:.5em; align-items:center; }
+  .stat .n{
+    font-size: clamp(20px, 4.6vmin, 34px);
+    font-weight:700;
+    font-variant-numeric: tabular-nums;
+    color: var(--bone);
+    line-height:1;
+  }
+  .stat.best .n{ color: var(--amber); }
+
+  .prompt{
+    margin-top:.7em;
+    font-size: clamp(10px, 1.8vmin, 13px);
+    letter-spacing:.3em;
+    text-transform:uppercase;
+    color: var(--phosphor);
+    animation: blink 1.25s steps(1,end) infinite;
+  }
+  .prompt.wait{ animation:none; opacity:.28; }
+
+  .newbest{
+    color: var(--amber);
+    font-size: clamp(10px, 1.8vmin, 13px);
+    letter-spacing:.34em;
+    text-transform:uppercase;
+    animation: blink .7s steps(1,end) infinite;
+  }
+  .newbest[hidden]{ display:none; }
+
+  @keyframes blink{ 0%,55%{opacity:1} 56%,100%{opacity:.16} }
+
+  @media (prefers-reduced-motion: reduce){
+    .prompt, .newbest{ animation:none; }
+    .crt::before{ opacity:.3; }
+  }
+</style>
+
+<canvas id="scope"></canvas>
+
+<div class="hud">
+  <div class="row">
+    <div class="readout">
+      <span class="label">Score</span>
+      <span class="value" id="score">0</span>
+    </div>
+    <div class="readout right">
+      <span class="label">Best</span>
+      <span class="value sm" id="best">0</span>
+      <span class="label" style="margin-top:.9em">Ring</span>
+      <span class="value sm" id="rings">0</span>
+    </div>
+  </div>
+
+  <div class="chip" id="chip">×1</div>
+
+  <div class="meter" id="meter">
+    <div class="label"><span>Charge</span><span id="chargeState">Idle</span></div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+  </div>
+</div>
+
+<div class="crt"></div>
+
+<div class="panel" id="menu">
+  <span class="eyebrow">Orbital Threading Trial</span>
+  <h1>ORBIT<span class="dim">LOCK</span></h1>
+  <div class="rule"></div>
+  <p class="brief">
+    You orbit the core. Rings collapse inward — each has a gap.
+    <b>One input reverses your spin.</b> Thread every gap.
+    Cut it fine for a <b>perfect</b>, and perfects charge the core
+    until it burns rings out of the sky.
+  </p>
+  <div class="stats">
+    <div class="stat best"><span class="n" id="mBest">0</span><span class="label">Best</span></div>
+    <div class="stat"><span class="n" id="mRuns">0</span><span class="label">Runs</span></div>
+    <div class="stat"><span class="n" id="mCombo">0</span><span class="label">Top chain</span></div>
+  </div>
+  <span class="prompt" id="menuPrompt">Tap · Click · Space to reverse</span>
+</div>
+
+<div class="panel" id="over" hidden>
+  <span class="eyebrow">Orbit lost</span>
+  <h2>BREACH</h2>
+  <div class="rule"></div>
+  <div class="stats">
+    <div class="stat"><span class="n" id="oScore">0</span><span class="label">Score</span></div>
+    <div class="stat"><span class="n" id="oRings">0</span><span class="label">Rings</span></div>
+    <div class="stat"><span class="n" id="oCombo">0</span><span class="label">Chain</span></div>
+  </div>
+  <span class="newbest" id="newBest" hidden>New personal best</span>
+  <span class="prompt wait" id="overPrompt">Stand by</span>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const TAU = Math.PI * 2;
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const rand  = (a, b) => a + Math.random() * (b - a);
+  const norm  = a => { a %= TAU; return a < 0 ? a + TAU : a; };
+  const angDiff = (a, b) => {
+    let d = (a - b) % TAU;
+    if (d >  Math.PI) d -= TAU;
+    if (d < -Math.PI) d += TAU;
+    return d;
+  };
+
+  const C = {
+    phosphor: "#5ff2a0",
+    dim:      "#1d4a35",
+    amber:    "#ffb648",
+    alarm:    "#ff4d3d",
+    bone:     "#e8f2ea",
+    ground:   "#060a08"
+  };
+
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const FONT = getComputedStyle(document.body).fontFamily ||
+               "ui-monospace, Menlo, Consolas, monospace";
+
+  // ------------------------------------------------------------------ canvas
+  const cv  = document.getElementById("scope");
+  const ctx = cv.getContext("2d");
+  let W = 0, H = 0, CX = 0, CY = 0, DPR = 1;
+  let R_MAX = 300, R_ORBIT = 90, PLAYER_R = 8, RING_W = 6;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cv.width  = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width  = W + "px";
+    cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    CX = W / 2;
+    CY = H / 2;
+    R_MAX    = Math.min(W, H) * 0.45;
+    R_ORBIT  = Math.max(56, R_MAX * 0.30);
+    PLAYER_R = Math.max(6.5, R_MAX * 0.021);
+    RING_W   = Math.max(5, R_MAX * 0.017);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ------------------------------------------------------------------- audio
+  let AC = null, master = null;
+  function audioInit() {
+    if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return;
+    AC = new Ctor();
+    master = AC.createGain();
+    master.gain.value = 0.18;
+    master.connect(AC.destination);
+  }
+  function tone(freq, dur, type = "square", vol = 1, slideTo = null) {
+    if (!AC) return;
+    const t = AC.currentTime;
+    const o = AC.createOscillator();
+    const g = AC.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  function noise(dur, vol = 0.5) {
+    if (!AC) return;
+    const n = Math.floor(AC.sampleRate * dur);
+    const buf = AC.createBuffer(1, n, AC.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = AC.createBufferSource();
+    src.buffer = buf;
+    const f = AC.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(1800, AC.currentTime);
+    f.frequency.exponentialRampToValueAtTime(120, AC.currentTime + dur);
+    const g = AC.createGain();
+    g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start();
+  }
+
+  // -------------------------------------------------------------------- save
+  const KEY = "orbitlock.v1";
+  const save = Object.assign({ best: 0, runs: 0, topCombo: 0 }, (() => {
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }
+  })());
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} };
+
+  // --------------------------------------------------------------------- dom
+  const el = id => document.getElementById(id);
+  const ui = {
+    score: el("score"), best: el("best"), rings: el("rings"),
+    chip: el("chip"), meter: el("meter"), fill: el("fill"), chargeState: el("chargeState"),
+    menu: el("menu"), menuPrompt: el("menuPrompt"),
+    mBest: el("mBest"), mRuns: el("mRuns"), mCombo: el("mCombo"),
+    over: el("over"), overPrompt: el("overPrompt"),
+    oScore: el("oScore"), oRings: el("oRings"), oCombo: el("oCombo"), newBest: el("newBest")
+  };
+
+  // -------------------------------------------------------------------- game
+  const G = {
+    state: "menu",          // menu | play | dead
+    t: 0,
+    player: { a: -Math.PI / 2, dir: 1, trail: [] },
+    rings: [], sparks: [], notes: [], stars: [],
+    score: 0, ringsPassed: 0, combo: 0, bestCombo: 0,
+    charge: 0, overdrive: 0,
+    shake: 0, freeze: 0, flash: 0, flashColor: C.amber,
+    deadAt: 0, sweep: 0
+  };
+
+  const level    = () => 1 + Math.floor(G.ringsPassed / 6);
+  const multi    = () => clamp(1 + Math.floor(G.combo / 5), 1, 10);
+  const spinRate = () => Math.min(3.15, 2.35 + level() * 0.05);
+  // Ring cadence is expressed in *seconds between arrivals*, not pixels: the
+  // player needs time to physically travel between two gaps, so the interval
+  // has a floor. Difficulty past that point comes from speed, gap size and spin.
+  const ringSpeed    = () => Math.min(215, 80 + level() * 10);
+  const ringInterval = () => Math.max(0.95, 1.9 - level() * 0.11);
+
+  function reset() {
+    G.t = 0;
+    G.player.a = -Math.PI / 2;
+    G.player.dir = 1;
+    G.player.trail.length = 0;
+    G.rings.length = 0;
+    G.sparks.length = 0;
+    G.notes.length = 0;
+    G.stars.length = 0;
+    G.score = 0; G.ringsPassed = 0; G.combo = 0; G.bestCombo = 0;
+    G.charge = 0; G.overdrive = 0;
+    G.shake = 0; G.freeze = 0; G.flash = 0;
+  }
+
+  function makeGaps(n, h, base) {
+    const gaps = [];
+    const sector = TAU / n;
+    for (let i = 0; i < n; i++) {
+      const jitter = Math.max(0, sector / 2 - h - 0.14);
+      gaps.push({ c: norm(base + i * sector + rand(-jitter, jitter)), h });
+    }
+    return gaps;
+  }
+
+  function spawnRing() {
+    const lv    = level();
+    const h     = Math.max(0.34, 0.62 - lv * 0.021);
+    const n     = lv >= 3 && Math.random() < 0.32 ? 2 : 1;
+    const speed = ringSpeed();
+    const rot   = rand(0, TAU);
+
+    // Fairness anchor: place the new gap within the arc the player can actually
+    // cover before this ring lands, measured from where the last gap left them.
+    const prev = G.rings[G.rings.length - 1];
+    const anchor = prev ? norm(prev.gaps[0].c + prev.rot) : G.player.a;
+    const reach  = Math.min(Math.PI, ringInterval() * spinRate() * 0.95);
+    const base   = anchor + rand(-reach, reach) - rot;
+
+    G.rings.push({
+      r: R_MAX,
+      speed,
+      rot,
+      rotSpeed: (Math.random() < 0.5 ? -1 : 1) * Math.min(1.3, rand(0.14, 0.3 + lv * 0.07)),
+      gaps: makeGaps(n, h, base),
+      scored: false,
+      minMargin: 99,
+      dashed: n > 1
+    });
+
+    // occasional collectible drifting in between rings
+    if (Math.random() < 0.3) {
+      G.stars.push({ r: R_MAX - rand(30, 70), a: rand(0, TAU), spin: 0 });
+    }
+  }
+
+  function spark(x, y, n, color, spread = 190, life = 0.55) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), s = rand(0.25, 1) * spread;
+      G.sparks.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: rand(life * 0.5, life), max: life, color, size: rand(1, 2.6)
+      });
+    }
+  }
+
+  function note(text, color, y = -34) {
+    G.notes.push({ text, color, life: 0.9, x: CX, y: CY + y });
+  }
+
+  // ------------------------------------------------------------------- input
+  function primary() {
+    audioInit();
+    if (G.state === "menu") { reset(); G.state = "play"; ui.menu.hidden = true; return; }
+    if (G.state === "dead") {
+      if (G.t - G.deadAt < 0.75) return;
+      reset(); G.state = "play"; ui.over.hidden = true; return;
+    }
+    G.player.dir *= -1;
+    const p = playerPos();
+    spark(p.x, p.y, 5, C.phosphor, 90, 0.32);
+    tone(G.player.dir > 0 ? 340 : 260, 0.05, "square", 0.22);
+  }
+
+  window.addEventListener("pointerdown", e => { e.preventDefault(); primary(); }, { passive: false });
+  window.addEventListener("keydown", e => {
+    if (e.code === "Space" || e.code === "ArrowLeft" || e.code === "ArrowRight" ||
+        e.code === "ArrowUp" || e.code === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (!e.repeat) primary();
+    }
+  });
+  function playerPos() {
+    return { x: CX + Math.cos(G.player.a) * R_ORBIT, y: CY + Math.sin(G.player.a) * R_ORBIT };
+  }
+
+  // ------------------------------------------------------------------ events
+  function onPass(ring, perfect) {
+    G.ringsPassed++;
+    G.combo++;
+    G.bestCombo = Math.max(G.bestCombo, G.combo);
+
+    const base = 10 * multi();
+    G.score += perfect ? base * 2 + 25 : base;
+
+    const p = playerPos();
+    if (perfect) {
+      G.charge = clamp(G.charge + 0.15, 0, 1);
+      G.freeze = 0.055;
+      G.shake += 4;
+      spark(p.x, p.y, 16, C.amber, 240, 0.6);
+      note("PERFECT  +" + (base * 2 + 25), C.amber);
+      tone(660 + Math.min(600, G.combo * 22), 0.09, "square", 0.3);
+      tone(990 + Math.min(700, G.combo * 26), 0.13, "triangle", 0.2);
+    } else {
+      spark(p.x, p.y, 6, C.phosphor, 130, 0.4);
+      tone(300 + Math.min(560, G.combo * 18), 0.06, "square", 0.2);
+    }
+
+    if (G.charge >= 1 && G.overdrive <= 0) startOverdrive();
+
+    if (G.ringsPassed % 8 === 0) {
+      G.flash = 0.35; G.flashColor = C.phosphor;
+      note("SURGE · LEVEL " + level(), C.phosphor, 34);
+      tone(180, 0.3, "sawtooth", 0.22, 420);
+    }
+  }
+
+  function startOverdrive() {
+    G.overdrive = 4.5;
+    G.flash = 0.5; G.flashColor = C.amber;
+    G.shake += 10;
+    note("OVERDRIVE", C.amber, -70);
+    tone(220, 0.5, "sawtooth", 0.3, 880);
+    tone(330, 0.5, "square", 0.2, 1320);
+  }
+
+  function die() {
+    G.state = "dead";
+    G.deadAt = G.t;
+    G.shake = 26;
+    G.freeze = 0.16;
+    G.flash = 0.5; G.flashColor = C.alarm;
+    const p = playerPos();
+    spark(p.x, p.y, 46, C.alarm, 340, 0.95);
+    noise(0.55, 0.6);
+    tone(300, 0.5, "sawtooth", 0.3, 40);
+
+    save.runs++;
+    save.topCombo = Math.max(save.topCombo || 0, G.bestCombo);
+    const record = G.score > (save.best || 0);
+    if (record) save.best = G.score;
+    persist();
+
+    ui.oScore.textContent = G.score.toLocaleString();
+    ui.oRings.textContent = G.ringsPassed;
+    ui.oCombo.textContent = G.bestCombo;
+    ui.newBest.hidden = !record || G.score === 0;
+    ui.overPrompt.textContent = "Stand by";
+    ui.overPrompt.classList.add("wait");
+    ui.over.hidden = false;
+  }
+
+  // ------------------------------------------------------------------ update
+  function update(dt) {
+    G.t += dt;
+    G.sweep += dt * 0.42;
+    G.shake = Math.max(0, G.shake - dt * 60);
+    G.flash = Math.max(0, G.flash - dt * 1.9);
+
+    // particles + floating notes always run, even on the death screen
+    for (let i = G.sparks.length - 1; i >= 0; i--) {
+      const s = G.sparks[i];
+      s.life -= dt;
+      if (s.life <= 0) { G.sparks.splice(i, 1); continue; }
+      s.x += s.vx * dt; s.y += s.vy * dt;
+      s.vx *= 0.94; s.vy *= 0.94;
+    }
+    for (let i = G.notes.length - 1; i >= 0; i--) {
+      const n = G.notes[i];
+      n.life -= dt;
+      n.y -= dt * 26;
+      if (n.life <= 0) G.notes.splice(i, 1);
+    }
+
+    if (G.state === "dead" && G.t - G.deadAt > 0.75 && ui.overPrompt.classList.contains("wait")) {
+      ui.overPrompt.textContent = "Tap to re-enter orbit";
+      ui.overPrompt.classList.remove("wait");
+    }
+
+    if (G.state !== "play") return;
+
+    if (G.overdrive > 0) {
+      G.overdrive -= dt;
+      G.charge = clamp(G.overdrive / 4.5, 0, 1);
+      if (G.overdrive <= 0) { G.overdrive = 0; G.charge = 0; }
+    }
+
+    // player
+    const P = G.player;
+    P.a = norm(P.a + P.dir * spinRate() * dt);
+    const pp = playerPos();
+    P.trail.push({ x: pp.x, y: pp.y });
+    if (P.trail.length > 16) P.trail.shift();
+
+    // spawn
+    const lv = level();
+    const spacing = ringSpeed() * ringInterval();
+    const last = G.rings[G.rings.length - 1];
+    if (!last || last.r < R_MAX - spacing) spawnRing();
+
+    // rings
+    const band = RING_W / 2 + PLAYER_R;
+    for (let i = G.rings.length - 1; i >= 0; i--) {
+      const ring = G.rings[i];
+      ring.r -= ring.speed * dt;
+      ring.rot = norm(ring.rot + ring.rotSpeed * dt);
+
+      if (ring.r <= 4) { G.rings.splice(i, 1); continue; }
+
+      const crossing = Math.abs(ring.r - R_ORBIT) < band;
+
+      if (crossing && !ring.scored) {
+        if (G.overdrive > 0) {
+          // core burns the ring out of the sky
+          G.rings.splice(i, 1);
+          G.ringsPassed++;
+          G.combo++;
+          G.bestCombo = Math.max(G.bestCombo, G.combo);
+          G.score += 30 * multi();
+          G.shake += 5;
+          for (let k = 0; k < 10; k++) {
+            const a = rand(0, TAU);
+            spark(CX + Math.cos(a) * ring.r, CY + Math.sin(a) * ring.r, 3, C.amber, 200, 0.5);
+          }
+          tone(520 + Math.random() * 300, 0.07, "square", 0.24);
+          continue;
+        }
+
+        const pa = PLAYER_R / Math.max(1, ring.r);
+        let margin = -1;
+        for (const g of ring.gaps) {
+          const d = Math.abs(angDiff(P.a, g.c + ring.rot));
+          const m = (g.h - pa) - d;
+          if (m > margin) margin = m;
+        }
+        if (margin <= 0) { die(); return; }
+        ring.minMargin = Math.min(ring.minMargin, margin);
+      }
+
+      if (!ring.scored && ring.r < R_ORBIT - band) {
+        ring.scored = true;
+        onPass(ring, ring.minMargin < 0.15);
+      }
+    }
+
+    // collectibles
+    for (let i = G.stars.length - 1; i >= 0; i--) {
+      const s = G.stars[i];
+      s.r -= (58 + lv * 8) * dt;
+      s.spin += dt * 2.4;
+      if (s.r < 8) { G.stars.splice(i, 1); continue; }
+      if (Math.abs(s.r - R_ORBIT) < 18 && Math.abs(angDiff(P.a, s.a)) < 0.3) {
+        G.stars.splice(i, 1);
+        G.score += 75 * multi();
+        G.charge = clamp(G.charge + 0.1, 0, 1);
+        spark(CX + Math.cos(s.a) * R_ORBIT, CY + Math.sin(s.a) * R_ORBIT, 14, C.bone, 220, 0.55);
+        note("+" + 75 * multi(), C.bone, -12);
+        tone(880, 0.07, "triangle", 0.28);
+        tone(1320, 0.12, "sine", 0.2);
+        if (G.charge >= 1 && G.overdrive <= 0) startOverdrive();
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------- draw
+  function ringArcs(ring) {
+    const gs = ring.gaps
+      .map(g => { const c = norm(g.c + ring.rot); return { s: c - g.h, e: c + g.h }; })
+      .sort((a, b) => a.s - b.s);
+    const arcs = [];
+    for (let i = 0; i < gs.length; i++) {
+      const from = gs[i].e;
+      const to   = (i === gs.length - 1) ? gs[0].s + TAU : gs[i + 1].s;
+      arcs.push([from, to]);
+    }
+    return arcs;
+  }
+
+  function draw() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    // ground
+    ctx.fillStyle = C.ground;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    if (G.shake > 0.2 && !reduceMotion) {
+      ctx.translate(rand(-G.shake, G.shake) * 0.4, rand(-G.shake, G.shake) * 0.4);
+    }
+
+    // ---- scope background: concentric graticule + radar sweep
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(29,74,53,.55)";
+    for (let k = 1; k <= 5; k++) {
+      ctx.beginPath();
+      ctx.arc(CX, CY, R_MAX * (k / 5), 0, TAU);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(29,74,53,.35)";
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(CX + Math.cos(a) * R_ORBIT * 0.4, CY + Math.sin(a) * R_ORBIT * 0.4);
+      ctx.lineTo(CX + Math.cos(a) * R_MAX, CY + Math.sin(a) * R_MAX);
+      ctx.stroke();
+    }
+
+    if (!reduceMotion) {
+      const sw = ctx.createConicGradient
+        ? ctx.createConicGradient(G.sweep, CX, CY)
+        : null;
+      if (sw) {
+        sw.addColorStop(0, "rgba(95,242,160,.10)");
+        sw.addColorStop(0.12, "rgba(95,242,160,0)");
+        sw.addColorStop(1, "rgba(95,242,160,0)");
+        ctx.fillStyle = sw;
+        ctx.beginPath();
+        ctx.arc(CX, CY, R_MAX, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    // ---- player orbit track
+    ctx.strokeStyle = G.overdrive > 0 ? "rgba(255,182,72,.55)" : "rgba(95,242,160,.28)";
+    ctx.setLineDash([2, 7]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_ORBIT, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ---- core
+    const corePulse = 1 + Math.sin(G.t * 3) * 0.07;
+    const coreR = R_ORBIT * 0.24 * corePulse;
+    const cg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR * 3);
+    const coreCol = G.overdrive > 0 ? "255,182,72" : "95,242,160";
+    cg.addColorStop(0, `rgba(${coreCol},.85)`);
+    cg.addColorStop(0.35, `rgba(${coreCol},.22)`);
+    cg.addColorStop(1, `rgba(${coreCol},0)`);
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(CX, CY, coreR * 3, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = G.overdrive > 0 ? C.amber : C.phosphor;
+    ctx.beginPath();
+    ctx.arc(CX, CY, coreR * 0.5, 0, TAU);
+    ctx.fill();
+
+    // ---- rings
+    ctx.lineCap = "butt";
+    for (const ring of G.rings) {
+      const near = clamp(1 - (ring.r - R_ORBIT) / (R_MAX - R_ORBIT), 0.25, 1);
+      ctx.lineWidth = RING_W;
+      ctx.strokeStyle = C.amber;
+      ctx.globalAlpha = 0.35 + near * 0.65;
+      ctx.shadowBlur = 14 * near;
+      ctx.shadowColor = C.amber;
+      // two-gap rings read as a different material, not a different colour —
+      // alarm red stays reserved for the breach itself
+      if (ring.dashed) ctx.setLineDash([RING_W * 1.7, RING_W * 0.85]);
+      for (const [from, to] of ringArcs(ring)) {
+        ctx.beginPath();
+        ctx.arc(CX, CY, ring.r, from, to);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+
+      // gap mouth ticks — read the opening early
+      ctx.globalAlpha = 0.5 + near * 0.5;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = C.bone;
+      for (const g of ring.gaps) {
+        const c = g.c + ring.rot;
+        for (const edge of [c - g.h, c + g.h]) {
+          ctx.beginPath();
+          ctx.moveTo(CX + Math.cos(edge) * (ring.r - RING_W * 0.9), CY + Math.sin(edge) * (ring.r - RING_W * 0.9));
+          ctx.lineTo(CX + Math.cos(edge) * (ring.r + RING_W * 0.9), CY + Math.sin(edge) * (ring.r + RING_W * 0.9));
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- collectibles
+    for (const s of G.stars) {
+      const x = CX + Math.cos(s.a) * s.r, y = CY + Math.sin(s.a) * s.r;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(s.spin);
+      ctx.strokeStyle = C.bone;
+      ctx.fillStyle = "rgba(232,242,234,.16)";
+      ctx.lineWidth = 1.6;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = C.bone;
+      ctx.beginPath();
+      const rr = PLAYER_R * 0.95;
+      for (let k = 0; k < 4; k++) {
+        const a = k * (TAU / 4);
+        const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+        k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+
+    // ---- player trail + body
+    if (G.state !== "menu") {
+      const T = G.player.trail;
+      ctx.lineCap = "round";
+      for (let i = 1; i < T.length; i++) {
+        const a = (i / T.length) * 0.5;
+        ctx.strokeStyle = `rgba(95,242,160,${a})`;
+        ctx.lineWidth = PLAYER_R * 1.5 * (i / T.length);
+        ctx.beginPath();
+        ctx.moveTo(T[i - 1].x, T[i - 1].y);
+        ctx.lineTo(T[i].x, T[i].y);
+        ctx.stroke();
+      }
+      if (G.state === "play") {
+        const p = playerPos();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = G.overdrive > 0 ? C.amber : C.phosphor;
+        ctx.fillStyle = G.overdrive > 0 ? C.amber : C.phosphor;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, PLAYER_R, 0, TAU);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // spin-direction pip
+        ctx.fillStyle = C.ground;
+        ctx.beginPath();
+        ctx.arc(
+          p.x + Math.cos(G.player.a + G.player.dir * 1.2) * PLAYER_R * 0.45,
+          p.y + Math.sin(G.player.a + G.player.dir * 1.2) * PLAYER_R * 0.45,
+          PLAYER_R * 0.3, 0, TAU
+        );
+        ctx.fill();
+      }
+    }
+
+    // ---- sparks
+    for (const s of G.sparks) {
+      ctx.globalAlpha = clamp(s.life / s.max, 0, 1);
+      ctx.fillStyle = s.color;
+      ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- floating notes
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const n of G.notes) {
+      ctx.globalAlpha = clamp(n.life / 0.9, 0, 1);
+      ctx.fillStyle = n.color;
+      ctx.font = `700 ${Math.max(12, R_MAX * 0.045)}px ${FONT}`;
+      ctx.fillText(n.text, n.x, n.y);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+
+    // ---- full-scope flash
+    if (G.flash > 0) {
+      ctx.globalAlpha = G.flash * 0.28;
+      ctx.fillStyle = G.flashColor;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---------------------------------------------------------------- hud sync
+  let lastHud = "";
+  function syncHud() {
+    const key = [G.state, G.score, G.ringsPassed, G.combo, save.best,
+                 Math.round(G.charge * 50), G.overdrive > 0].join("|");
+    if (key === lastHud) return;
+    lastHud = key;
+
+    document.body.classList.toggle("paneled", G.state !== "play");
+
+    ui.score.textContent = G.score.toLocaleString();
+    ui.best.textContent  = (save.best || 0).toLocaleString();
+    ui.rings.textContent = G.ringsPassed;
+
+    const m = multi();
+    ui.chip.textContent = "×" + m + "   CHAIN " + G.combo;
+    ui.chip.classList.toggle("on", G.state === "play" && G.combo > 0);
+    ui.chip.classList.toggle("hot", m >= 4);
+
+    ui.fill.style.width = (G.charge * 100).toFixed(1) + "%";
+    const full = G.charge >= 1 || G.overdrive > 0;
+    ui.meter.classList.toggle("full", full);
+    ui.chargeState.textContent = G.overdrive > 0
+      ? "Overdrive " + G.overdrive.toFixed(1) + "s"
+      : G.charge > 0 ? Math.round(G.charge * 100) + "%" : "Idle";
+
+    ui.mBest.textContent  = (save.best || 0).toLocaleString();
+    ui.mRuns.textContent  = save.runs || 0;
+    ui.mCombo.textContent = save.topCombo || 0;
+  }
+
+  // -------------------------------------------------------------------- loop
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 1000;
+    last = now;
+    dt = Math.min(0.034, dt);
+
+    if (G.freeze > 0) { G.freeze -= dt; dt *= 0.16; }
+
+    update(dt);
+    draw();
+    syncHud();
+    requestAnimationFrame(frame);
+  }
+
+  syncHud();
+  requestAnimationFrame(frame);
+})();
+</script>
