@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoardEye — confirm position</title>
+  <link rel="icon" href="data:,">
+
+  <link rel="stylesheet" href="/static/editor.css">
+</head>
+<body>
+<header>
+  <h1>BoardEye</h1>
+  <p class="tagline">
+    Check the flagged squares, glance over the board, then send it to an engine.
+  </p>
+</header>
+
+<main>
+  <section class="board-column">
+    <div id="board" class="board" role="grid" aria-label="Detected position"></div>
+
+    <div class="board-actions">
+      <button id="rotate" type="button" title="The photo cannot tell which side White sat on">
+        Rotate 90&deg;
+      </button>
+      <label class="inline">
+        Side to move
+        <select id="side-to-move">
+          <option value="w">White</option>
+          <option value="b">Black</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label class="inline">Castling <input id="castling" type="text" size="6" spellcheck="false"></label>
+      <label class="inline">En passant <input id="en-passant" type="text" size="4" spellcheck="false"></label>
+    </div>
+
+    <div id="warnings" class="warnings" hidden></div>
+
+    <label class="fen-label" for="fen">FEN</label>
+    <textarea id="fen" class="fen" rows="2" readonly spellcheck="false"></textarea>
+
+    <div class="exports">
+      <button id="copy-fen" type="button">Copy FEN</button>
+      <a id="lichess" class="button" target="_blank" rel="noopener">Open in Lichess</a>
+      <a id="chesscom" class="button" target="_blank" rel="noopener">Open in Chess.com</a>
+      <a class="button subtle" href="/download/position.pgn">Download PGN</a>
+    </div>
+    <p id="commit-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="review-column">
+    <div class="panel">
+      <h2>Review queue</h2>
+      <p class="hint" id="queue-position">&nbsp;</p>
+      <div class="crop-wrap">
+        <img id="crop" alt="Photograph of the selected square" width="96">
+        <div class="crop-meta">
+          <p id="crop-square" class="crop-square">&mdash;</p>
+          <p id="crop-guess" class="crop-guess"></p>
+          <ul id="alternatives" class="alternatives"></ul>
+        </div>
+      </div>
+      <div class="piece-buttons" id="piece-buttons">
+        <button type="button" data-type="p">Pawn <kbd>P</kbd></button>
+        <button type="button" data-type="n">Knight <kbd>N</kbd></button>
+        <button type="button" data-type="b">Bishop <kbd>B</kbd></button>
+        <button type="button" data-type="r">Rook <kbd>R</kbd></button>
+        <button type="button" data-type="q">Queen <kbd>Q</kbd></button>
+        <button type="button" data-type="k">King <kbd>K</kbd></button>
+        <button type="button" data-action="empty" class="wide">Empty square <kbd>X</kbd></button>
+        <button type="button" data-action="colour" class="wide">Flip colour <kbd>C</kbd></button>
+      </div>
+      <p class="hint">
+        <kbd>Space</kbd> next flagged square &middot; <kbd>&larr;&uarr;&rarr;&darr;</kbd> move
+      </p>
+      <label class="inline learn">
+        <input id="learn" type="checkbox" checked>
+        Learn from my corrections
+      </label>
+      <p class="hint" id="corrections-count"></p>
+    </div>
+
+    <div class="panel">
+      <h2>Source photo</h2>
+      <p class="hint" id="detection-info"></p>
+      <div class="photo-wrap">
+        <img id="photo" src="/image/photo.png" alt="The photograph being read">
+        <svg id="corner-overlay" class="corner-overlay"></svg>
+      </div>
+      <button id="pick-corners" type="button">Board found wrong? Click its 4 corners</button>
+      <p class="hint" id="corner-hint"></p>
+    </div>
+  </section>
+</main>
+
+<script src="/static/editor.js"></script>
+</body>
+</html>
