@@ -1,41 +1,53 @@
-# Orbit Lock
+# Rot & Bloom
 
-A one-input arcade game. You orbit a core while rings collapse inward — each has a gap.
-Your only control reverses your spin. Thread every gap.
+An incremental game about a fungal network growing under a forest floor. You start by
+digesting leaf litter by hand; you end up running something the size of a continent.
 
 Open `index.html` in a browser. No build step, no dependencies, no network calls.
+Progress saves automatically and keeps accruing while the tab is closed.
 
-## Controls
+## The loop
 
-Tap, click, or press **Space** to reverse your direction of spin. That's the whole input.
+**Digest** the substrate for biomass, spend biomass on **ten kinds of network** — from a
+single Hypha up to a Continental Mat — and each one produces biomass on its own. Every
+10, 25, 50, 100, 150 and 200 of a kind doubles that kind's yield, so counts matter as much
+as tiers.
 
-## How it scores
+**Refinements** are one-time multipliers bought with biomass. They unlock as you qualify
+for them and are lost on every bloom.
 
-| Event | Reward |
+**Sporulation** is the prestige layer. Past 500K biomass in a single bloom you can collapse
+the network: biomass, generators and refinements all reset, but you keep spores — and every
+lifetime spore permanently raises all yields. Spores also buy **adaptations**, which survive
+every future bloom: better offline rates, an auto-digester, cheaper generators, flat
+production multipliers.
+
+**Observations** are 18 achievements, each worth a further +1% to everything.
+
+## Pacing
+
+Measured by simulating a full playthrough rather than by feel:
+
+| | reached at |
 | --- | --- |
-| Thread a gap | 10 × multiplier |
-| Thread it *close to the edge* — a **perfect** | 2× that, plus 25, plus charge |
-| Collect a drifting marker | 75 × multiplier, plus charge |
-| Ring burned during overdrive | 30 × multiplier |
+| Rhizomorph | 1m44s |
+| Fruiting Body | 7m31s |
+| Spore Print | 15m |
+| First sporulation available | **17m41s** |
+| Mycorrhizal Bridge | 26m |
+| Fairy Ring | 43m |
+| 1B biomass | 64m |
+| Old-Growth Nexus | 133m |
 
-The multiplier climbs one step per 5-ring chain and resets when you breach. Perfects fill
-the charge meter; when it fills, the core enters **overdrive** for 4.5 seconds and burns
-rings out of the sky instead of dying to them.
-
-## Difficulty
-
-Level rises every 6 rings. Ring speed, spin rate, and gap tightness all scale with it, and
-two-gap rings (drawn as a dashed ring, so they read as a different material) appear from
-level 3.
-
-Cadence is defined in *seconds between arrivals* rather than pixels of spacing, with a floor
-of 0.95s — the player needs time to physically travel between two gaps, so past that floor
-difficulty comes from speed, gap size, and spin instead of raw density. Each new gap is also
-anchored within the arc the player can actually cover before the ring lands, so a run is
-never lost to an unreachable spawn.
+Deep Vein and Continental Mat are still out of reach after three hours of a single
+un-prestiged run, so the long tail stays intact. The first prestige lands inside twenty
+minutes deliberately — the second layer is the most interesting part of the game and
+shouldn't be hidden behind an hour of grinding.
 
 ## Notes
 
-Single file, ~700 lines. Canvas 2D for the scope, WebAudio for procedurally generated sound
-(no audio assets), `localStorage` for best score, runs, and top chain. Honors
-`prefers-reduced-motion` by dropping screen shake and the radar sweep.
+Single file. Canvas 2D draws the mycelium network, which grows as a function of biomass
+earned this bloom — so it visibly regrows after each sporulation, over a faint ghost of the
+largest network you have ever reached. `localStorage` for saves; time away pays out at 50%
+(80% with Persistence), capped at 8 hours (24 with Deep Dormancy). Honors
+`prefers-reduced-motion`.

@@ -1,972 +1,1225 @@
-<title>Orbit Lock</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#060a08">
+<title>Rot &amp; Bloom</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12100c">
 
 <style>
   :root{
-    --ground:      #060a08;
-    --ground-lift: #0b1310;
-    --phosphor:    #5ff2a0;
-    --phosphor-dim:#1d4a35;
-    --amber:       #ffb648;
-    --alarm:       #ff4d3d;
-    --bone:        #e8f2ea;
-    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --loam:      #12100c;
+    --loam-lift: #1a1712;
+    --loam-card: #211d16;
+    --edge:      #322c22;
+    --edge-hot:  #4a4132;
+
+    --myco:      #7fd4a8;
+    --myco-deep: #3f8a67;
+    --cap:       #e0a355;
+    --spore:     #b89ae8;
+    --bone:      #efe9dd;
+    --muted:     #8a8074;
+    --gain:      #9ee88a;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+    --r: 3px;
   }
 
   *{ box-sizing:border-box; margin:0; padding:0; }
 
-  html,body{ height:100%; overflow:hidden; }
+  html,body{ height:100%; }
 
   body{
-    background: var(--ground);
-    color: var(--phosphor);
-    font-family: var(--mono);
+    background: var(--loam);
+    color: var(--bone);
+    font-family: var(--sans);
+    font-size:15px;
+    line-height:1.5;
     -webkit-font-smoothing:antialiased;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-    user-select:none;
-    -webkit-user-select:none;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+    overflow:hidden;
   }
 
-  #scope{
-    position:fixed; inset:0;
+  button{ font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--myco); outline-offset:2px; }
+
+  .app{
+    height:100%;
+    display:grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+
+  /* ============================================ terrarium (left) */
+  .terrarium{
+    position:relative;
+    overflow:hidden;
+    border-right:1px solid var(--edge);
+    background:
+      radial-gradient(ellipse at 50% 55%, #191510 0%, var(--loam) 72%);
+  }
+  #net{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  /* the whole panel is the click target — keyboard-reachable, not a bare canvas */
+  .digest{
+    position:absolute; inset:0;
+    width:100%; height:100%;
     display:block;
-    background: var(--ground);
+    background:none;
+    z-index:2;
   }
 
-  /* ---- CRT overlay: scanlines + vignette + a faint bloom ---- */
-  .crt{
-    position:fixed; inset:0;
+  .hero{
+    position:absolute;
+    top:0; left:0; right:0;
+    padding: clamp(18px, 3.4vmin, 34px);
     pointer-events:none;
     z-index:3;
+    display:flex; flex-direction:column; gap:.15em;
   }
-  .crt::before{
-    content:""; position:absolute; inset:0;
-    background: repeating-linear-gradient(
-      to bottom,
-      rgba(0,0,0,0) 0px,
-      rgba(0,0,0,0) 2px,
-      rgba(0,0,0,.28) 3px,
-      rgba(0,0,0,.28) 4px
-    );
-    opacity:.55;
+  .bm-row{ display:flex; align-items:baseline; gap:.65rem; flex-wrap:wrap; }
+  .bm{
+    font-family:var(--sans);
+    font-size: clamp(34px, 6.4vmin, 62px);
+    font-weight:700;
+    letter-spacing:-.028em;
+    line-height:1;
+    font-variant-numeric: tabular-nums;
+    color:var(--bone);
   }
-  .crt::after{
-    content:""; position:absolute; inset:0;
-    background: radial-gradient(ellipse at 50% 50%,
-      rgba(0,0,0,0) 42%,
-      rgba(0,0,0,.42) 78%,
-      rgba(0,0,0,.82) 100%);
+  .bm-unit{
+    font-family:var(--serif);
+    font-style:italic;
+    font-size: clamp(14px, 2.1vmin, 19px);
+    color:var(--muted);
   }
+  .rate{
+    font-size: clamp(12px, 1.7vmin, 15px);
+    color:var(--myco);
+    font-variant-numeric: tabular-nums;
+  }
+  .rate .lbl{ color:var(--muted); }
 
-  /* ---- HUD ---- */
-  .hud{
-    position:fixed; inset:0;
-    z-index:2;
+  .hint{
+    position:absolute;
+    bottom: clamp(14px, 2.6vmin, 26px);
+    left:0; right:0;
+    text-align:center;
+    font-family:var(--serif);
+    font-style:italic;
+    font-size:13px;
+    color:var(--muted);
     pointer-events:none;
-    padding: clamp(14px, 3.2vmin, 30px);
-    display:grid;
-    grid-template-rows: auto 1fr auto;
-    transition: opacity .3s ease;
+    z-index:3;
+    transition:opacity .4s;
   }
-  /* the panels restate every figure, so the live HUD would just bleed through */
-  body.paneled .hud{ opacity:0; }
 
-  .row{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
-
-  .readout{ display:flex; flex-direction:column; gap:.35em; }
-  .readout.right{ align-items:flex-end; text-align:right; }
-
-  .label{
-    font-size: clamp(8px, 1.35vmin, 10px);
-    letter-spacing:.34em;
+  .depth{
+    position:absolute;
+    bottom: clamp(14px, 2.6vmin, 26px);
+    right: clamp(18px, 3.4vmin, 34px);
+    font-size:10px;
+    letter-spacing:.2em;
     text-transform:uppercase;
-    color: var(--phosphor);
-    opacity:.5;
+    color:var(--muted);
+    opacity:.65;
+    pointer-events:none; z-index:3;
+    font-variant-numeric:tabular-nums;
   }
 
-  .value{
-    font-variant-numeric: tabular-nums;
-    font-size: clamp(26px, 6.4vmin, 54px);
-    font-weight:700;
-    line-height:.9;
-    letter-spacing:-.02em;
-    color: var(--bone);
-    text-shadow: 0 0 18px rgba(95,242,160,.30);
+  /* floating +N on click */
+  .floaters{ position:absolute; inset:0; pointer-events:none; z-index:4; overflow:hidden; }
+  .float{
+    position:absolute;
+    font-size:14px; font-weight:600;
+    color:var(--myco);
+    font-variant-numeric:tabular-nums;
+    animation: rise 1s ease-out forwards;
+    text-shadow:0 0 12px rgba(127,212,168,.5);
   }
-  .value.sm{
-    font-size: clamp(13px, 2.3vmin, 18px);
-    font-weight:600;
-    color: var(--phosphor);
-    text-shadow:none;
-    opacity:.85;
+  @keyframes rise{
+    from{ transform:translateY(0); opacity:1; }
+    to{ transform:translateY(-46px); opacity:0; }
   }
 
-  /* combo chip: state encoded in form, not just number */
-  .chip{
-    justify-self:center;
-    align-self:start;   /* otherwise the chip stretches the whole middle grid row */
-    margin-top: .9em;
-    font-size: clamp(11px, 2.1vmin, 15px);
-    font-weight:700;
-    letter-spacing:.22em;
-    padding:.42em .85em .38em;
-    border:1px solid var(--phosphor-dim);
-    color: var(--phosphor);
-    background: rgba(6,10,8,.55);
-    opacity:0;
-    transform: translateY(-6px);
-    transition: opacity .18s ease, transform .18s ease, color .18s, border-color .18s;
-    font-variant-numeric: tabular-nums;
-  }
-  .chip.on{ opacity:1; transform:none; }
-  .chip.hot{ color:var(--amber); border-color:rgba(255,182,72,.5); }
+  /* ============================================ ledger (right) */
+  .ledger{ display:flex; flex-direction:column; min-height:0; background:var(--loam-lift); }
 
-  /* ---- energy / overdrive meter ---- */
-  .meter{ display:flex; flex-direction:column; gap:.55em; width:100%; }
-  .meter .label{ display:flex; justify-content:space-between; }
-  .track{
-    height:3px;
-    background: var(--phosphor-dim);
+  .tabs{
+    display:flex;
+    border-bottom:1px solid var(--edge);
+    flex:none;
+  }
+  .tab{
+    flex:1;
+    padding: 14px 6px 12px;
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    border-bottom:2px solid transparent;
+    transition:color .15s, border-color .15s, background .15s;
+    position:relative;
+  }
+  .tab:hover{ color:var(--bone); background:rgba(255,255,255,.02); }
+  .tab[aria-selected="true"]{ color:var(--bone); border-bottom-color:var(--myco); }
+  .tab .pip{
+    display:inline-block;
+    width:5px; height:5px; border-radius:50%;
+    background:var(--cap);
+    vertical-align:2px; margin-left:5px;
+    opacity:0; transition:opacity .2s;
+  }
+  .tab .pip.on{ opacity:1; }
+
+  .pane{ display:none; overflow-y:auto; padding: 16px; flex:1; min-height:0; }
+  .pane.on{ display:block; }
+  .pane::-webkit-scrollbar{ width:9px; }
+  .pane::-webkit-scrollbar-thumb{ background:var(--edge); border-radius:9px; }
+
+  .paneHead{
+    display:flex; justify-content:space-between; align-items:baseline;
+    gap:12px; margin-bottom:12px; flex-wrap:wrap;
+  }
+  .paneTitle{
+    font-family:var(--serif);
+    font-size:19px; font-weight:600; letter-spacing:.01em;
+  }
+  .paneNote{ font-size:12px; color:var(--muted); }
+
+  .bulk{ display:flex; gap:1px; background:var(--edge); border:1px solid var(--edge); border-radius:var(--r); overflow:hidden; }
+  .bulk button{
+    padding:4px 11px; font-size:11px; font-weight:600;
+    background:var(--loam-card); color:var(--muted);
+    letter-spacing:.04em;
+  }
+  .bulk button[aria-pressed="true"]{ background:var(--myco-deep); color:var(--bone); }
+
+  /* --- generator / upgrade rows --- */
+  .list{ display:flex; flex-direction:column; gap:7px; }
+
+  .row{
+    width:100%;
+    display:grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 12px;
+    align-items:center;
+    text-align:left;
+    padding:11px 13px;
+    background:var(--loam-card);
+    border:1px solid var(--edge);
+    border-radius:var(--r);
+    transition: border-color .15s, background .15s, transform .06s;
     position:relative;
     overflow:hidden;
   }
-  .fill{
-    position:absolute; inset:0 auto 0 0;
+  .row.can{ border-color:var(--edge-hot); }
+  .row.can:hover{ background:#282318; border-color:var(--myco-deep); }
+  .row.can:active{ transform:translateY(1px); }
+  .row:disabled{ cursor:default; opacity:.55; }
+  .row.locked{ opacity:.42; cursor:default; }
+
+  /* affordability fill — how close you are, encoded in the row itself */
+  .row .prog{
+    position:absolute; left:0; top:0; bottom:0;
+    background:linear-gradient(to right, rgba(127,212,168,.13), rgba(127,212,168,.05));
     width:0%;
-    background: var(--phosphor);
-    box-shadow: 0 0 12px rgba(95,242,160,.7);
-    transition: width .12s linear;
+    pointer-events:none;
+    transition:width .25s ease;
   }
-  .meter.full .fill{ background: var(--amber); box-shadow:0 0 16px rgba(255,182,72,.85); }
-  .meter.full .label{ color: var(--amber); opacity:1; }
+  .row > *{ position:relative; }
 
-  /* ---- overlay panels ---- */
-  .panel{
-    position:fixed; inset:0;
-    z-index:4;
-    display:grid;
-    place-content:center;
-    justify-items:center;
-    text-align:center;
-    gap: 1.15em;
-    padding: 8vmin;
-    background: radial-gradient(ellipse at 50% 50%, rgba(6,10,8,.72) 0%, rgba(6,10,8,.94) 70%);
-    backdrop-filter: blur(2px);
-    cursor:pointer;
+  .rName{ font-weight:600; font-size:14.5px; letter-spacing:-.005em; }
+  .rName .own{
+    color:var(--myco); font-variant-numeric:tabular-nums;
+    font-weight:700; margin-left:7px; font-size:13px;
   }
-  .panel[hidden]{ display:none; }
-
-  .eyebrow{
-    font-size: clamp(8px, 1.4vmin, 10px);
-    letter-spacing:.42em;
-    text-transform:uppercase;
-    opacity:.55;
+  .rName .ms{
+    display:inline-block; margin-left:6px; font-size:10px;
+    color:var(--cap); font-weight:700; letter-spacing:.04em;
   }
-
-  h1{
-    font-size: clamp(34px, 11vmin, 92px);
-    font-weight:700;
-    letter-spacing:.16em;
-    line-height:1;
-    color: var(--bone);
-    text-indent:.16em; /* balance the trailing letterspace */
-    text-shadow: 0 0 34px rgba(95,242,160,.34);
+  .rFlavor{
+    font-family:var(--serif); font-style:italic;
+    font-size:12.5px; color:var(--muted); line-height:1.4;
+    grid-column:1 / -1;
   }
-  h1 .dim{ color: var(--phosphor); }
+  .rEffect{ font-size:12px; color:var(--myco); font-variant-numeric:tabular-nums; grid-column:1 / -1; }
+  .rCost{
+    text-align:right; font-variant-numeric:tabular-nums;
+    font-size:13.5px; font-weight:700; color:var(--cap);
+    white-space:nowrap;
+  }
+  .rCost.no{ color:var(--muted); }
+  .rCost .n{ font-size:11px; display:block; color:var(--muted); font-weight:500; letter-spacing:.06em; }
 
-  h2{
-    font-size: clamp(22px, 6vmin, 44px);
-    font-weight:700;
-    letter-spacing:.2em;
-    text-indent:.2em;
-    color: var(--alarm);
-    text-shadow: 0 0 28px rgba(255,77,61,.4);
+  .empty{
+    font-family:var(--serif); font-style:italic;
+    color:var(--muted); font-size:13.5px; padding:22px 4px; text-align:center;
   }
 
-  .rule{
-    width: min(66vw, 340px);
-    height:1px;
-    background: linear-gradient(to right, transparent, var(--phosphor), transparent);
-    opacity:.42;
+  /* --- prestige --- */
+  .bloomCard{
+    background:linear-gradient(160deg, #241c33, var(--loam-card));
+    border:1px solid #3d3350;
+    border-radius:var(--r);
+    padding:17px;
+    margin-bottom:14px;
   }
-
-  .brief{
-    font-size: clamp(12px, 2.1vmin, 15px);
-    line-height:1.85;
-    letter-spacing:.06em;
-    color: var(--phosphor);
-    opacity:.82;
-    max-width: 40ch;
+  .bloomYield{
+    font-size:37px; font-weight:700; color:var(--spore);
+    font-variant-numeric:tabular-nums; line-height:1;
+    display:flex; align-items:baseline; gap:.3em;
   }
-  .brief b{ color: var(--bone); font-weight:600; }
+  .bloomYield small{ font-size:14px; font-weight:500; color:var(--muted); font-family:var(--serif); font-style:italic; }
+  .bloomBody{ font-size:13px; color:var(--muted); margin:9px 0 14px; line-height:1.6; }
+  .bloomBtn{
+    width:100%; padding:11px; border-radius:var(--r);
+    background:var(--spore); color:#221a30;
+    font-weight:700; font-size:13.5px; letter-spacing:.09em; text-transform:uppercase;
+    transition:filter .15s, opacity .15s;
+  }
+  .bloomBtn:hover:not(:disabled){ filter:brightness(1.1); }
+  .bloomBtn:disabled{ opacity:.3; cursor:default; }
 
+  .sporeBar{
+    display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+    padding:11px 13px; margin-bottom:12px;
+    background:var(--loam-card); border:1px solid var(--edge); border-radius:var(--r);
+    font-size:13px;
+  }
+  .sporeBar b{ color:var(--spore); font-variant-numeric:tabular-nums; font-size:16px; }
+  .sporeBar span{ color:var(--muted); }
+
+  .row.adapt.owned{ border-color:var(--myco-deep); opacity:1; }
+  .row.adapt.owned .rCost{ color:var(--myco); }
+
+  /* --- field log --- */
   .stats{
-    display:grid;
-    grid-template-columns: repeat(3, minmax(0,1fr));
-    gap: clamp(18px, 5vw, 46px);
-    margin-top:.4em;
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px;
+    background:var(--edge); border:1px solid var(--edge);
+    border-radius:var(--r); overflow:hidden; margin-bottom:16px;
   }
-  .stat{ display:flex; flex-direction:column; gap:.5em; align-items:center; }
-  .stat .n{
-    font-size: clamp(20px, 4.6vmin, 34px);
-    font-weight:700;
-    font-variant-numeric: tabular-nums;
-    color: var(--bone);
-    line-height:1;
-  }
-  .stat.best .n{ color: var(--amber); }
+  .stat{ background:var(--loam-card); padding:10px 12px; }
+  .stat dt{ font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .stat dd{ font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
 
-  .prompt{
-    margin-top:.7em;
-    font-size: clamp(10px, 1.8vmin, 13px);
-    letter-spacing:.3em;
-    text-transform:uppercase;
-    color: var(--phosphor);
-    animation: blink 1.25s steps(1,end) infinite;
+  .achGrid{ display:flex; flex-direction:column; gap:6px; }
+  .ach{
+    display:grid; grid-template-columns:auto 1fr; gap:11px; align-items:center;
+    padding:9px 12px; background:var(--loam-card);
+    border:1px solid var(--edge); border-radius:var(--r);
+    opacity:.4;
   }
-  .prompt.wait{ animation:none; opacity:.28; }
+  .ach.got{ opacity:1; border-color:var(--myco-deep); }
+  .achDot{ width:8px; height:8px; border-radius:50%; background:var(--edge-hot); }
+  .ach.got .achDot{ background:var(--myco); box-shadow:0 0 9px var(--myco); }
+  .achName{ font-weight:600; font-size:13.5px; }
+  .achDesc{ font-size:12px; color:var(--muted); }
 
-  .newbest{
-    color: var(--amber);
-    font-size: clamp(10px, 1.8vmin, 13px);
-    letter-spacing:.34em;
-    text-transform:uppercase;
-    animation: blink .7s steps(1,end) infinite;
+  .wipe{
+    margin-top:18px; padding:9px; width:100%;
+    font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); border:1px solid var(--edge); border-radius:var(--r);
   }
-  .newbest[hidden]{ display:none; }
+  .wipe:hover{ color:#e0725a; border-color:#5c3128; }
 
-  @keyframes blink{ 0%,55%{opacity:1} 56%,100%{opacity:.16} }
+  /* --- toast --- */
+  .toast{
+    position:fixed; left:50%; bottom:26px; transform:translate(-50%, 130%);
+    background:var(--loam-card); border:1px solid var(--edge-hot);
+    border-radius:var(--r); padding:13px 19px; z-index:50;
+    max-width:min(92vw, 400px);
+    box-shadow:0 12px 34px rgba(0,0,0,.6);
+    transition:transform .4s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .toast.on{ transform:translate(-50%, 0); }
+  .toastTitle{ font-family:var(--serif); font-size:15px; margin-bottom:3px; }
+  .toastBody{ font-size:12.5px; color:var(--muted); }
+  .toastBody b{ color:var(--myco); font-variant-numeric:tabular-nums; }
+
+  /* ============================================ responsive */
+  @media (max-width: 860px){
+    body{ overflow:auto; }
+    .app{ grid-template-columns:1fr; height:auto; min-height:100%; }
+    .terrarium{ height:46vh; min-height:290px; border-right:none; border-bottom:1px solid var(--edge); }
+    .ledger{ height:auto; }
+    .pane{ overflow:visible; max-height:none; }
+  }
 
   @media (prefers-reduced-motion: reduce){
-    .prompt, .newbest{ animation:none; }
-    .crt::before{ opacity:.3; }
+    *{ animation-duration:.01ms !important; transition-duration:.01ms !important; }
   }
 </style>
 
-<canvas id="scope"></canvas>
-
-<div class="hud">
-  <div class="row">
-    <div class="readout">
-      <span class="label">Score</span>
-      <span class="value" id="score">0</span>
+<div class="app">
+  <section class="terrarium">
+    <canvas id="net" aria-hidden="true"></canvas>
+    <button class="digest" id="digest" aria-label="Digest substrate for biomass"></button>
+    <div class="hero">
+      <div class="bm-row">
+        <span class="bm" id="bm">0</span>
+        <span class="bm-unit">biomass</span>
+      </div>
+      <div class="rate"><span id="rate">0</span> <span class="lbl">per second</span></div>
     </div>
-    <div class="readout right">
-      <span class="label">Best</span>
-      <span class="value sm" id="best">0</span>
-      <span class="label" style="margin-top:.9em">Ring</span>
-      <span class="value sm" id="rings">0</span>
+    <div class="floaters" id="floaters"></div>
+    <div class="hint" id="hint">Click the substrate to digest</div>
+    <div class="depth" id="depth">Network 0%</div>
+  </section>
+
+  <section class="ledger">
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true"  data-tab="grow">Grow<span class="pip" id="pip-grow"></span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="refine">Refine<span class="pip" id="pip-refine"></span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="bloom">Bloom<span class="pip" id="pip-bloom"></span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="log">Field Log</button>
+    </nav>
+
+    <div class="pane on" id="pane-grow" role="tabpanel">
+      <div class="paneHead">
+        <div>
+          <div class="paneTitle">The Network</div>
+          <div class="paneNote">Every 10, 25, 50, 100, 150 and 200 of a kind doubles its yield.</div>
+        </div>
+        <div class="bulk" id="bulk">
+          <button data-b="1"  aria-pressed="true">×1</button>
+          <button data-b="10" aria-pressed="false">×10</button>
+          <button data-b="-1" aria-pressed="false">Max</button>
+        </div>
+      </div>
+      <div class="list" id="genList"></div>
     </div>
-  </div>
 
-  <div class="chip" id="chip">×1</div>
+    <div class="pane" id="pane-refine" role="tabpanel">
+      <div class="paneHead">
+        <div>
+          <div class="paneTitle">Refinements</div>
+          <div class="paneNote">Bought once. Lost when the network blooms.</div>
+        </div>
+      </div>
+      <div class="list" id="upgList"></div>
+    </div>
 
-  <div class="meter" id="meter">
-    <div class="label"><span>Charge</span><span id="chargeState">Idle</span></div>
-    <div class="track"><div class="fill" id="fill"></div></div>
-  </div>
+    <div class="pane" id="pane-bloom" role="tabpanel">
+      <div class="paneHead">
+        <div>
+          <div class="paneTitle">Sporulation</div>
+          <div class="paneNote">Collapse the network. Keep what the spores remember.</div>
+        </div>
+      </div>
+      <div class="bloomCard">
+        <div class="bloomYield"><span id="yield">0</span> <small>spores on release</small></div>
+        <p class="bloomBody" id="bloomBody"></p>
+        <button class="bloomBtn" id="bloomBtn" disabled>Release spores</button>
+      </div>
+      <div class="sporeBar">
+        <span>Unspent</span><b id="sporeBal">0</b>
+        <span>Lifetime</span><b id="sporeTot">0</b>
+        <span>Yield bonus</span><b id="sporeMult">+0%</b>
+      </div>
+      <div class="list" id="adaptList"></div>
+    </div>
+
+    <div class="pane" id="pane-log" role="tabpanel">
+      <div class="paneHead"><div class="paneTitle">Field Log</div></div>
+      <dl class="stats" id="stats"></dl>
+      <div class="paneHead"><div class="paneTitle">Observations</div>
+        <div class="paneNote"><span id="achCount">0</span> recorded · each adds +1% yield</div></div>
+      <div class="achGrid" id="achList"></div>
+      <button class="wipe" id="wipe">Erase all progress</button>
+    </div>
+  </section>
 </div>
 
-<div class="crt"></div>
-
-<div class="panel" id="menu">
-  <span class="eyebrow">Orbital Threading Trial</span>
-  <h1>ORBIT<span class="dim">LOCK</span></h1>
-  <div class="rule"></div>
-  <p class="brief">
-    You orbit the core. Rings collapse inward — each has a gap.
-    <b>One input reverses your spin.</b> Thread every gap.
-    Cut it fine for a <b>perfect</b>, and perfects charge the core
-    until it burns rings out of the sky.
-  </p>
-  <div class="stats">
-    <div class="stat best"><span class="n" id="mBest">0</span><span class="label">Best</span></div>
-    <div class="stat"><span class="n" id="mRuns">0</span><span class="label">Runs</span></div>
-    <div class="stat"><span class="n" id="mCombo">0</span><span class="label">Top chain</span></div>
-  </div>
-  <span class="prompt" id="menuPrompt">Tap · Click · Space to reverse</span>
-</div>
-
-<div class="panel" id="over" hidden>
-  <span class="eyebrow">Orbit lost</span>
-  <h2>BREACH</h2>
-  <div class="rule"></div>
-  <div class="stats">
-    <div class="stat"><span class="n" id="oScore">0</span><span class="label">Score</span></div>
-    <div class="stat"><span class="n" id="oRings">0</span><span class="label">Rings</span></div>
-    <div class="stat"><span class="n" id="oCombo">0</span><span class="label">Chain</span></div>
-  </div>
-  <span class="newbest" id="newBest" hidden>New personal best</span>
-  <span class="prompt wait" id="overPrompt">Stand by</span>
+<div class="toast" id="toast">
+  <div class="toastTitle" id="toastTitle"></div>
+  <div class="toastBody" id="toastBody"></div>
 </div>
 
 <script>
 (() => {
   "use strict";
 
-  const TAU = Math.PI * 2;
-  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-  const rand  = (a, b) => a + Math.random() * (b - a);
-  const norm  = a => { a %= TAU; return a < 0 ? a + TAU : a; };
-  const angDiff = (a, b) => {
-    let d = (a - b) % TAU;
-    if (d >  Math.PI) d -= TAU;
-    if (d < -Math.PI) d += TAU;
-    return d;
-  };
+  /* ================================================================ utils */
+  const $ = id => document.getElementById(id);
+  const clamp = (v,a,b) => v<a?a:v>b?b:v;
+  const TAU = Math.PI*2;
 
-  const C = {
-    phosphor: "#5ff2a0",
-    dim:      "#1d4a35",
-    amber:    "#ffb648",
-    alarm:    "#ff4d3d",
-    bone:     "#e8f2ea",
-    ground:   "#060a08"
-  };
+  const UNITS = ["","K","M","B","T","Qa","Qi","Sx","Sp","Oc","No","Dc","Ud","Dd"];
+  function fmt(n){
+    if(!isFinite(n)) return "∞";
+    if(n < 0) return "-" + fmt(-n);
+    if(n < 1) return n === 0 ? "0" : n.toFixed(2).replace(/0+$/,"").replace(/\.$/,"");
+    if(n < 1000) return n < 100 ? (Math.round(n*10)/10).toString() : Math.floor(n).toString();
+    let i = Math.floor(Math.log10(n)/3);
+    i = Math.min(i, UNITS.length-1);
+    const v = n / Math.pow(1000, i);
+    return (v<10 ? v.toFixed(2) : v<100 ? v.toFixed(1) : Math.floor(v).toString()) + UNITS[i];
+  }
+  function fmtTime(ms){
+    const s = Math.floor(ms/1000);
+    if(s < 60) return s + "s";
+    const m = Math.floor(s/60);
+    if(m < 60) return m + "m " + (s%60) + "s";
+    const h = Math.floor(m/60);
+    if(h < 24) return h + "h " + (m%60) + "m";
+    return Math.floor(h/24) + "d " + (h%24) + "h";
+  }
 
-  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const FONT = getComputedStyle(document.body).fontFamily ||
-               "ui-monospace, Menlo, Consolas, monospace";
+  /* ================================================================ data */
+  const GENS = [
+    { id:"hypha",  name:"Hypha",              rate:.15,   base:15,     flavor:"One thread, feeling outward through the dark." },
+    { id:"rhizo",  name:"Rhizomorph",         rate:1.4,   base:95,     flavor:"Threads braided into a cord. Faster, hungrier." },
+    { id:"fruit",  name:"Fruiting Body",      rate:11,    base:1050,   flavor:"The part that surfaces. Everything else is below." },
+    { id:"print",  name:"Spore Print",        rate:65,    base:11500,  flavor:"A million chances, laid down in a single night." },
+    { id:"bridge", name:"Mycorrhizal Bridge", rate:350,   base:155000, flavor:"Sugar in, minerals out. The trees agree to the terms." },
+    { id:"ring",   name:"Fairy Ring",         rate:1900,  base:2.6e6,  flavor:"Centuries across, and still widening each spring." },
+    { id:"web",    name:"Wood Wide Web",      rate:7800,  base:4.6e7,  flavor:"The forest, thinking." },
+    { id:"nexus",  name:"Old-Growth Nexus",   rate:44000, base:9.2e8,  flavor:"Older than the soil lying on top of it." },
+    { id:"vein",   name:"Deep Vein",          rate:2.6e5, base:1.3e10, flavor:"Down where the rock still holds its heat." },
+    { id:"mat",    name:"Continental Mat",    rate:1.6e6, base:1.6e11, flavor:"One organism. Several time zones." }
+  ];
+  const GEN_BY = Object.fromEntries(GENS.map(g => [g.id, g]));
+  const MILESTONES = [10,25,50,100,150,200];
 
-  // ------------------------------------------------------------------ canvas
-  const cv  = document.getElementById("scope");
-  const ctx = cv.getContext("2d");
-  let W = 0, H = 0, CX = 0, CY = 0, DPR = 1;
-  let R_MAX = 300, R_ORBIT = 90, PLAYER_R = 8, RING_W = 6;
+  // upgrades: bought with biomass, cleared on bloom
+  const UPGRADES = [
+    { id:"enz1", name:"Sharper Enzymes",  desc:"Digesting yields ×2.",  cost:120,   req:s => s.clicks >= 12,        eff:{click:2} },
+    { id:"enz2", name:"Acidic Secretion", desc:"Digesting yields ×2.",  cost:2600,  req:s => s.clicks >= 90,        eff:{click:2} },
+    { id:"enz3", name:"Lytic Cascade",    desc:"Digesting yields ×3.",  cost:72000, req:s => s.clicks >= 320,       eff:{click:3} },
+    { id:"tap1", name:"Tap Root",         desc:"Digesting also yields 3% of your per-second rate.", cost:3.4e5, req:s => rate() >= 120,  eff:{fromRate:.03} },
+    { id:"tap2", name:"Deep Tap",         desc:"Digesting also yields a further 9% of your rate.",  cost:2.2e7, req:s => rate() >= 6000, eff:{fromRate:.09} },
 
-  function resize() {
+    { id:"hy1", name:"Branching Habit", desc:"Hyphae ×2.",            cost:420,    req:s => cnt("hypha")>=10, eff:{gen:"hypha",  m:2} },
+    { id:"hy2", name:"Apical Drive",    desc:"Hyphae ×3.",            cost:34000,  req:s => cnt("hypha")>=50, eff:{gen:"hypha",  m:3} },
+    { id:"rh1", name:"Cord Bundling",   desc:"Rhizomorphs ×2.",       cost:2800,   req:s => cnt("rhizo")>=10, eff:{gen:"rhizo",  m:2} },
+    { id:"rh2", name:"Hydraulic Lift",  desc:"Rhizomorphs ×3.",       cost:190000, req:s => cnt("rhizo")>=50, eff:{gen:"rhizo",  m:3} },
+    { id:"fr1", name:"Gill Density",    desc:"Fruiting Bodies ×2.",   cost:31000,  req:s => cnt("fruit")>=10, eff:{gen:"fruit",  m:2} },
+    { id:"fr2", name:"Second Flush",    desc:"Fruiting Bodies ×3.",   cost:2.1e6,  req:s => cnt("fruit")>=50, eff:{gen:"fruit",  m:3} },
+    { id:"sp1", name:"Wind Dispersal",  desc:"Spore Prints ×2.",      cost:3.3e5,  req:s => cnt("print")>=10, eff:{gen:"print",  m:2} },
+    { id:"sp2", name:"Hydrophobic Coat",desc:"Spore Prints ×3.",      cost:2.4e7,  req:s => cnt("print")>=50, eff:{gen:"print",  m:3} },
+    { id:"br1", name:"Root Handshake",  desc:"Bridges ×2.",           cost:4.6e6,  req:s => cnt("bridge")>=10,eff:{gen:"bridge", m:2} },
+    { id:"br2", name:"Nutrient Toll",   desc:"Bridges ×3.",           cost:3.3e8,  req:s => cnt("bridge")>=50,eff:{gen:"bridge", m:3} },
+    { id:"rg1", name:"Perennial Front", desc:"Fairy Rings ×2.",       cost:7.4e7,  req:s => cnt("ring")>=10,  eff:{gen:"ring",   m:2} },
+    { id:"wb1", name:"Signal Traffic",  desc:"Wood Wide Webs ×2.",    cost:1.2e9,  req:s => cnt("web")>=10,   eff:{gen:"web",    m:2} },
+    { id:"nx1", name:"Heartwood Roots", desc:"Nexuses ×2.",           cost:2.3e10, req:s => cnt("nexus")>=10, eff:{gen:"nexus",  m:2} },
+
+    { id:"hum0", name:"Leaf Mould",   desc:"All yields ×1.5.", cost:3200,  req:s => s.earned >= 1800,   eff:{all:1.5} },
+    { id:"hum1", name:"Rich Humus",   desc:"All yields ×1.5.", cost:9e4,   req:s => s.earned >= 4.5e4, eff:{all:1.5} },
+    { id:"hum2", name:"Black Earth",  desc:"All yields ×1.5.", cost:6.5e6, req:s => s.earned >= 3e6,   eff:{all:1.5} },
+    { id:"hum3", name:"Ancient Duff", desc:"All yields ×2.",   cost:4.2e8, req:s => s.earned >= 2e8,   eff:{all:2} },
+    { id:"hum4", name:"Peat Depths",  desc:"All yields ×2.",   cost:2.6e10,req:s => s.earned >= 1.2e10,eff:{all:2} },
+    { id:"hum5", name:"Bedrock Seep", desc:"All yields ×2.5.", cost:9e11,  req:s => s.earned >= 4e11,  eff:{all:2.5} },
+
+    { id:"ms1", name:"Standing Deadwood", desc:"Each kind you own 25+ of gives all yields +4%.", cost:1.4e6, req:s => GENS.filter(g=>cnt(g.id)>=25).length >= 2, eff:{per25:.04} },
+    { id:"ms2", name:"Fallen Giants",     desc:"Each kind you own 25+ of gives all yields +8%.", cost:8.8e8, req:s => GENS.filter(g=>cnt(g.id)>=25).length >= 5, eff:{per25:.08} }
+  ];
+
+  // adaptations: bought with spores, survive every bloom
+  const ADAPTS = [
+    { id:"persist", name:"Persistence",  desc:"Time away pays 80% instead of 50%.",              cost:2   },
+    { id:"sleep",   name:"Deep Dormancy",desc:"Time away accrues for 24 hours instead of 8.",    cost:5   },
+    { id:"turgor",  name:"Turgor",       desc:"Digesting yields ×5.",                            cost:3   },
+    { id:"head",    name:"Inoculum",     desc:"Start every bloom with 20 Hyphae and 8 Rhizomorphs.", cost:8 },
+    { id:"autoly",  name:"Autolysis",    desc:"The substrate digests itself 5× a second.",       cost:12  },
+    { id:"frugal",  name:"Frugality",    desc:"Everything in the network costs 12% less.",        cost:20  },
+    { id:"symb",    name:"Symbiosis",    desc:"Each lifetime spore gives +3.5% instead of +2%.",  cost:32  },
+    { id:"quick",   name:"Quickening",   desc:"All yields ×2, permanently.",                      cost:50  },
+    { id:"second",  name:"Second Wind",  desc:"All yields ×3, permanently.",                      cost:170 },
+    { id:"eternal", name:"Eternal Return",desc:"All yields ×5, permanently.",                     cost:600 }
+  ];
+
+  const ACHS = [
+    { id:"a1",  name:"First Thread",    desc:"Digest once.",                     test:s => s.clicks >= 1 },
+    { id:"a2",  name:"Taking Hold",     desc:"Own 10 Hyphae.",                   test:s => cnt("hypha") >= 10 },
+    { id:"a3",  name:"Underfoot",       desc:"Reach 1K biomass in one bloom.",   test:s => s.earned >= 1e3 },
+    { id:"a4",  name:"Something Surfaces", desc:"Own a Fruiting Body.",          test:s => cnt("fruit") >= 1 },
+    { id:"a5",  name:"Leaf Litter",     desc:"Reach 100K biomass in one bloom.", test:s => s.earned >= 1e5 },
+    { id:"a6",  name:"Persistent",      desc:"Digest 500 times.",                test:s => s.clicks >= 500 },
+    { id:"a7",  name:"Handshake",       desc:"Own a Mycorrhizal Bridge.",        test:s => cnt("bridge") >= 1 },
+    { id:"a8",  name:"Ten Million",     desc:"Reach 10M biomass in one bloom.",  test:s => s.earned >= 1e7 },
+    { id:"a9",  name:"First Release",   desc:"Sporulate once.",                  test:s => s.blooms >= 1 },
+    { id:"a10", name:"Ring Bearer",     desc:"Own a Fairy Ring.",                test:s => cnt("ring") >= 1 },
+    { id:"a11", name:"Century",         desc:"Own 100 of any one kind.",         test:s => GENS.some(g => cnt(g.id) >= 100) },
+    { id:"a12", name:"Connected",       desc:"Own a Wood Wide Web.",             test:s => cnt("web") >= 1 },
+    { id:"a13", name:"Seasoned",        desc:"Sporulate 5 times.",               test:s => s.blooms >= 5 },
+    { id:"a14", name:"Billion",         desc:"Reach 1B biomass in one bloom.",   test:s => s.earned >= 1e9 },
+    { id:"a15", name:"Deep Time",       desc:"Own a Deep Vein.",                 test:s => cnt("vein") >= 1 },
+    { id:"a16", name:"Sporebank",       desc:"Hold 50 lifetime spores.",         test:s => s.sporesTotal >= 50 },
+    { id:"a17", name:"Continental",     desc:"Own a Continental Mat.",           test:s => cnt("mat") >= 1 },
+    { id:"a18", name:"Everything Rots", desc:"Reach 1T biomass in one bloom.",   test:s => s.earned >= 1e12 }
+  ];
+
+  /* ================================================================ state */
+  const KEY = "rotbloom.v1";
+  const fresh = () => ({
+    biomass:0, earned:0, allTime:0, clicks:0,
+    gens:{}, ups:[], adapts:[], achs:[],
+    spores:0, sporesTotal:0, blooms:0,
+    started:Date.now(), lastSeen:Date.now(), bulk:1
+  });
+  let S = fresh();
+
+  const cnt = id => S.gens[id] || 0;
+  const has = id => S.ups.includes(id);
+  const adapted = id => S.adapts.includes(id);
+
+  /* ============================================================ economy */
+  let M = { all:1, click:1, fromRate:0, gen:{}, per25:0 };
+
+  function recompute(){
+    M = { all:1, click:1, fromRate:0, gen:{}, per25:0 };
+    for(const u of UPGRADES){
+      if(!has(u.id)) continue;
+      const e = u.eff;
+      if(e.all)      M.all *= e.all;
+      if(e.click)    M.click *= e.click;
+      if(e.fromRate) M.fromRate += e.fromRate;
+      if(e.gen)      M.gen[e.gen] = (M.gen[e.gen] || 1) * e.m;
+      if(e.per25)    M.per25 += e.per25;
+    }
+    if(adapted("turgor")) M.click *= 5;
+    if(adapted("quick"))  M.all *= 2;
+    if(adapted("second")) M.all *= 3;
+    if(adapted("eternal"))M.all *= 5;
+  }
+
+  const sporeRate = () => adapted("symb") ? .035 : .02;
+  const sporeMult = () => 1 + S.sporesTotal * sporeRate();
+  const achMult   = () => 1 + S.achs.length * .01;
+  const per25Mult = () => 1 + M.per25 * GENS.filter(g => cnt(g.id) >= 25).length;
+
+  function msMult(c){
+    let m = 1;
+    for(const t of MILESTONES) if(c >= t) m *= 2;
+    return m;
+  }
+  function globalMult(){ return M.all * sporeMult() * achMult() * per25Mult(); }
+
+  function genRate(g){
+    const c = cnt(g.id);
+    if(!c) return 0;
+    return c * g.rate * msMult(c) * (M.gen[g.id] || 1) * globalMult();
+  }
+  function rate(){
+    let r = 0;
+    for(const g of GENS) r += genRate(g);
+    return r;
+  }
+  function clickYield(){ return 1 * M.click * globalMult() + rate() * M.fromRate; }
+
+  const costMod = () => adapted("frugal") ? .88 : 1;
+  function costOf(g, n){
+    const r = 1.15, c = cnt(g.id);
+    const b = g.base * costMod() * Math.pow(r, c);
+    return b * (Math.pow(r, n) - 1) / (r - 1);
+  }
+  function maxBuy(g){
+    const r = 1.15, c = cnt(g.id);
+    const b = g.base * costMod() * Math.pow(r, c);
+    const n = Math.floor(Math.log(S.biomass * (r-1) / b + 1) / Math.log(r));
+    return Math.max(0, n);
+  }
+  const buyCount = g => S.bulk === -1 ? Math.max(1, maxBuy(g)) : S.bulk;
+
+  function sporeYield(){
+    const t = S.earned;
+    if(t < 5e5) return 0;
+    return Math.floor(Math.pow(t / 5e5, .5));
+  }
+
+  function earn(n){
+    S.biomass += n;
+    S.earned  += n;
+    S.allTime += n;
+  }
+
+  /* ============================================================= actions */
+  function digest(fromAuto){
+    const y = clickYield();
+    earn(y);
+    if(!fromAuto){
+      S.clicks++;
+      floatText("+" + fmt(y));
+      pulse();
+    }
+  }
+
+  function buyGen(g){
+    const n = buyCount(g);
+    const c = costOf(g, n);
+    if(S.biomass < c || n <= 0) return;
+    S.biomass -= c;
+    S.gens[g.id] = cnt(g.id) + n;
+    if($("hint")) $("hint").style.opacity = "0";
+    renderAll();
+  }
+
+  function buyUp(u){
+    if(has(u.id) || S.biomass < u.cost) return;
+    S.biomass -= u.cost;
+    S.ups.push(u.id);
+    recompute();
+    renderAll();
+  }
+
+  function buyAdapt(a){
+    if(adapted(a.id) || S.spores < a.cost) return;
+    S.spores -= a.cost;
+    S.adapts.push(a.id);
+    recompute();
+    if(a.id === "head") applyInoculum();
+    renderAll();
+  }
+
+  function applyInoculum(){
+    S.gens.hypha = Math.max(cnt("hypha"), 20);
+    S.gens.rhizo = Math.max(cnt("rhizo"), 8);
+  }
+
+  function bloom(){
+    const y = sporeYield();
+    if(y <= 0) return;
+    S.spores      += y;
+    S.sporesTotal += y;
+    S.blooms++;
+    S.biomass = 0;
+    S.earned  = 0;
+    S.gens    = {};
+    S.ups     = [];
+    if(adapted("head")) applyInoculum();
+    recompute();
+    toast("The network releases.",
+          "<b>" + fmt(y) + "</b> spores drift out. Lifetime yield bonus is now <b>+" +
+          Math.round((sporeMult()-1)*100) + "%</b>.");
+    renderAll();
+  }
+
+  /* ========================================================== achievements */
+  function checkAchs(){
+    const got = [];
+    for(const a of ACHS){
+      if(S.achs.includes(a.id)) continue;
+      if(a.test(S)){ S.achs.push(a.id); got.push(a); }
+    }
+    if(!got.length) return;
+    // several can land on one tick (notably on a first return) — one toast
+    toast(got.length > 1 ? got.length + " observations recorded" : "Observation recorded",
+          got.map(a => "<b>" + a.name + "</b> — " + a.desc).join("<br>"));
+    renderAch();
+  }
+
+  /* ================================================================ save */
+  function save(){
+    S.lastSeen = Date.now();
+    try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
+  }
+  function load(){
+    let raw = null;
+    try{ raw = localStorage.getItem(KEY); }catch(e){}
+    if(!raw) return false;
+    try{
+      const d = JSON.parse(raw);
+      S = Object.assign(fresh(), d);
+      S.gens = d.gens || {};
+      S.ups = d.ups || []; S.adapts = d.adapts || []; S.achs = d.achs || [];
+      return true;
+    }catch(e){ return false; }
+  }
+
+  function offlineCatchUp(){
+    const away = Date.now() - (S.lastSeen || Date.now());
+    if(away < 60000) return;
+    const capH = adapted("sleep") ? 24 : 8;
+    const eff  = adapted("persist") ? .8 : .5;
+    const secs = Math.min(away, capH*3600*1000) / 1000;
+    const gain = rate() * secs * eff;
+    if(gain <= 0) return;
+    earn(gain);
+    toast("While you were away",
+      "The network kept working for <b>" + fmtTime(Math.min(away, capH*3600*1000)) +
+      "</b> and laid down <b>" + fmt(gain) + "</b> biomass.");
+  }
+
+  /* ============================================================== toast */
+  // A queue, not a single slot: returning from an absence fires the offline
+  // summary and any achievements it earned in the same tick, and the summary
+  // is the one message that must not be clobbered.
+  const tq = [];
+  let toastBusy = false;
+  function toast(title, body){
+    tq.push({ title, body });
+    if(!toastBusy) nextToast();
+  }
+  function nextToast(){
+    const t = tq.shift();
+    if(!t){ toastBusy = false; return; }
+    toastBusy = true;
+    $("toastTitle").textContent = t.title;
+    $("toastBody").innerHTML = t.body;
+    $("toast").classList.add("on");
+    const dwell = tq.length > 2 ? 1800 : 4200;
+    setTimeout(() => {
+      $("toast").classList.remove("on");
+      setTimeout(nextToast, 400);
+    }, dwell);
+  }
+
+  /* ====================================================== floating text */
+  function floatText(t){
+    const f = document.createElement("div");
+    f.className = "float";
+    f.textContent = t;
+    const box = $("floaters").getBoundingClientRect();
+    f.style.left = (box.width  * (.3 + Math.random()*.4)) + "px";
+    f.style.top  = (box.height * (.42 + Math.random()*.2)) + "px";
+    $("floaters").appendChild(f);
+    setTimeout(() => f.remove(), 1000);
+  }
+
+  /* =============================================================== canvas */
+  const cv = $("net"), ctx = cv.getContext("2d");
+  let VW=0, VH=0, DPR=1;
+  let SEGS = [], NODES = [], paths = null, pathsAt = -1;
+  const pulses = [], motes = [];
+
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // Breadth-first so the reveal reads as radial outward growth, not one
+  // long tendril at a time.
+  function buildNetwork(){
+    const rng = mulberry32(20240814);
+    SEGS = []; NODES = [];
+    const q = [];
+    const roots = 7;
+    for(let i=0;i<roots;i++)
+      q.push({ x:0, y:0, a:(i/roots)*TAU + rng()*.5, d:0, len:.135 });
+
+    while(q.length && SEGS.length < 1500){
+      const b = q.shift();
+      let { x, y, a } = b;
+      for(let i=0;i<4;i++){
+        a += (rng()-.5)*.75;
+        const nx = x + Math.cos(a)*b.len, ny = y + Math.sin(a)*b.len;
+        SEGS.push({ x1:x, y1:y, x2:nx, y2:ny, d:b.d });
+        x = nx; y = ny;
+      }
+      NODES.push({ x, y, d:b.d });
+      if(b.d < 6){
+        const n = rng() < .74 ? 2 : 1;
+        for(let k=0;k<n;k++)
+          q.push({ x, y, a: a + (k===0?-1:1)*(.35 + rng()*.65), d:b.d+1, len:b.len*.79 });
+      }
+    }
+    let max = 0;
+    for(const s of SEGS) max = Math.max(max, Math.hypot(s.x2, s.y2));
+    const k = max > 0 ? .93/max : 1;
+    for(const s of SEGS){ s.x1*=k; s.y1*=k; s.x2*=k; s.y2*=k; }
+    for(const n of NODES){ n.x*=k; n.y*=k; }
+  }
+
+  function resize(){
     DPR = Math.min(2, window.devicePixelRatio || 1);
-    W = window.innerWidth;
-    H = window.innerHeight;
-    cv.width  = Math.round(W * DPR);
-    cv.height = Math.round(H * DPR);
-    cv.style.width  = W + "px";
-    cv.style.height = H + "px";
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    CX = W / 2;
-    CY = H / 2;
-    R_MAX    = Math.min(W, H) * 0.45;
-    R_ORBIT  = Math.max(56, R_MAX * 0.30);
-    PLAYER_R = Math.max(6.5, R_MAX * 0.021);
-    RING_W   = Math.max(5, R_MAX * 0.017);
+    const r = cv.getBoundingClientRect();
+    VW = r.width; VH = r.height;
+    cv.width = Math.round(VW*DPR); cv.height = Math.round(VH*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    pathsAt = -1;
   }
   window.addEventListener("resize", resize);
-  resize();
 
-  // ------------------------------------------------------------------- audio
-  let AC = null, master = null;
-  function audioInit() {
-    if (AC) { if (AC.state === "suspended") AC.resume(); return; }
-    const Ctor = window.AudioContext || window.webkitAudioContext;
-    if (!Ctor) return;
-    AC = new Ctor();
-    master = AC.createGain();
-    master.gain.value = 0.18;
-    master.connect(AC.destination);
-  }
-  function tone(freq, dur, type = "square", vol = 1, slideTo = null) {
-    if (!AC) return;
-    const t = AC.currentTime;
-    const o = AC.createOscillator();
-    const g = AC.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + dur + 0.02);
-  }
-  function noise(dur, vol = 0.5) {
-    if (!AC) return;
-    const n = Math.floor(AC.sampleRate * dur);
-    const buf = AC.createBuffer(1, n, AC.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-    const src = AC.createBufferSource();
-    src.buffer = buf;
-    const f = AC.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.setValueAtTime(1800, AC.currentTime);
-    f.frequency.exponentialRampToValueAtTime(120, AC.currentTime + dur);
-    const g = AC.createGain();
-    g.gain.value = vol;
-    src.connect(f); f.connect(g); g.connect(master);
-    src.start();
-  }
+  // growth is driven by this bloom's total, so the network visibly regrows
+  const growth = () => clamp(Math.log10(1 + S.earned) / 12.5, 0, 1);
+  const ghost  = () => clamp(Math.log10(1 + S.allTime) / 12.5, 0, 1);
 
-  // -------------------------------------------------------------------- save
-  const KEY = "orbitlock.v1";
-  const save = Object.assign({ best: 0, runs: 0, topCombo: 0 }, (() => {
-    try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }
-  })());
-  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (e) {} };
-
-  // --------------------------------------------------------------------- dom
-  const el = id => document.getElementById(id);
-  const ui = {
-    score: el("score"), best: el("best"), rings: el("rings"),
-    chip: el("chip"), meter: el("meter"), fill: el("fill"), chargeState: el("chargeState"),
-    menu: el("menu"), menuPrompt: el("menuPrompt"),
-    mBest: el("mBest"), mRuns: el("mRuns"), mCombo: el("mCombo"),
-    over: el("over"), overPrompt: el("overPrompt"),
-    oScore: el("oScore"), oRings: el("oRings"), oCombo: el("oCombo"), newBest: el("newBest")
-  };
-
-  // -------------------------------------------------------------------- game
-  const G = {
-    state: "menu",          // menu | play | dead
-    t: 0,
-    player: { a: -Math.PI / 2, dir: 1, trail: [] },
-    rings: [], sparks: [], notes: [], stars: [],
-    score: 0, ringsPassed: 0, combo: 0, bestCombo: 0,
-    charge: 0, overdrive: 0,
-    shake: 0, freeze: 0, flash: 0, flashColor: C.amber,
-    deadAt: 0, sweep: 0
-  };
-
-  const level    = () => 1 + Math.floor(G.ringsPassed / 6);
-  const multi    = () => clamp(1 + Math.floor(G.combo / 5), 1, 10);
-  const spinRate = () => Math.min(3.15, 2.35 + level() * 0.05);
-  // Ring cadence is expressed in *seconds between arrivals*, not pixels: the
-  // player needs time to physically travel between two gaps, so the interval
-  // has a floor. Difficulty past that point comes from speed, gap size and spin.
-  const ringSpeed    = () => Math.min(215, 80 + level() * 10);
-  const ringInterval = () => Math.max(0.95, 1.9 - level() * 0.11);
-
-  function reset() {
-    G.t = 0;
-    G.player.a = -Math.PI / 2;
-    G.player.dir = 1;
-    G.player.trail.length = 0;
-    G.rings.length = 0;
-    G.sparks.length = 0;
-    G.notes.length = 0;
-    G.stars.length = 0;
-    G.score = 0; G.ringsPassed = 0; G.combo = 0; G.bestCombo = 0;
-    G.charge = 0; G.overdrive = 0;
-    G.shake = 0; G.freeze = 0; G.flash = 0;
-  }
-
-  function makeGaps(n, h, base) {
-    const gaps = [];
-    const sector = TAU / n;
-    for (let i = 0; i < n; i++) {
-      const jitter = Math.max(0, sector / 2 - h - 0.14);
-      gaps.push({ c: norm(base + i * sector + rand(-jitter, jitter)), h });
+  function buildPaths(n){
+    const byDepth = [];
+    for(let i=0;i<n && i<SEGS.length;i++){
+      const s = SEGS[i];
+      (byDepth[s.d] = byDepth[s.d] || new Path2D());
+      byDepth[s.d].moveTo(s.x1, s.y1);
+      byDepth[s.d].lineTo(s.x2, s.y2);
     }
-    return gaps;
+    return byDepth;
   }
 
-  function spawnRing() {
-    const lv    = level();
-    const h     = Math.max(0.34, 0.62 - lv * 0.021);
-    const n     = lv >= 3 && Math.random() < 0.32 ? 2 : 1;
-    const speed = ringSpeed();
-    const rot   = rand(0, TAU);
+  function pulse(){ pulses.push({ r:0, life:1 }); }
 
-    // Fairness anchor: place the new gap within the arc the player can actually
-    // cover before this ring lands, measured from where the last gap left them.
-    const prev = G.rings[G.rings.length - 1];
-    const anchor = prev ? norm(prev.gaps[0].c + prev.rot) : G.player.a;
-    const reach  = Math.min(Math.PI, ringInterval() * spinRate() * 0.95);
-    const base   = anchor + rand(-reach, reach) - rot;
+  function drawNet(dt){
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.clearRect(0,0,VW,VH);
 
-    G.rings.push({
-      r: R_MAX,
-      speed,
-      rot,
-      rotSpeed: (Math.random() < 0.5 ? -1 : 1) * Math.min(1.3, rand(0.14, 0.3 + lv * 0.07)),
-      gaps: makeGaps(n, h, base),
-      scored: false,
-      minMargin: 99,
-      dashed: n > 1
-    });
+    const cx = VW/2, cy = VH/2;
+    const R  = Math.min(VW,VH) * .46;
+    const gr = growth(), gh = ghost();
+    const reveal = Math.floor(SEGS.length * gr);
 
-    // occasional collectible drifting in between rings
-    if (Math.random() < 0.3) {
-      G.stars.push({ r: R_MAX - rand(30, 70), a: rand(0, TAU), spin: 0 });
-    }
-  }
-
-  function spark(x, y, n, color, spread = 190, life = 0.55) {
-    for (let i = 0; i < n; i++) {
-      const a = rand(0, TAU), s = rand(0.25, 1) * spread;
-      G.sparks.push({
-        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: rand(life * 0.5, life), max: life, color, size: rand(1, 2.6)
-      });
-    }
-  }
-
-  function note(text, color, y = -34) {
-    G.notes.push({ text, color, life: 0.9, x: CX, y: CY + y });
-  }
-
-  // ------------------------------------------------------------------- input
-  function primary() {
-    audioInit();
-    if (G.state === "menu") { reset(); G.state = "play"; ui.menu.hidden = true; return; }
-    if (G.state === "dead") {
-      if (G.t - G.deadAt < 0.75) return;
-      reset(); G.state = "play"; ui.over.hidden = true; return;
-    }
-    G.player.dir *= -1;
-    const p = playerPos();
-    spark(p.x, p.y, 5, C.phosphor, 90, 0.32);
-    tone(G.player.dir > 0 ? 340 : 260, 0.05, "square", 0.22);
-  }
-
-  window.addEventListener("pointerdown", e => { e.preventDefault(); primary(); }, { passive: false });
-  window.addEventListener("keydown", e => {
-    if (e.code === "Space" || e.code === "ArrowLeft" || e.code === "ArrowRight" ||
-        e.code === "ArrowUp" || e.code === "Enter" || e.key === " ") {
-      e.preventDefault();
-      if (!e.repeat) primary();
-    }
-  });
-  function playerPos() {
-    return { x: CX + Math.cos(G.player.a) * R_ORBIT, y: CY + Math.sin(G.player.a) * R_ORBIT };
-  }
-
-  // ------------------------------------------------------------------ events
-  function onPass(ring, perfect) {
-    G.ringsPassed++;
-    G.combo++;
-    G.bestCombo = Math.max(G.bestCombo, G.combo);
-
-    const base = 10 * multi();
-    G.score += perfect ? base * 2 + 25 : base;
-
-    const p = playerPos();
-    if (perfect) {
-      G.charge = clamp(G.charge + 0.15, 0, 1);
-      G.freeze = 0.055;
-      G.shake += 4;
-      spark(p.x, p.y, 16, C.amber, 240, 0.6);
-      note("PERFECT  +" + (base * 2 + 25), C.amber);
-      tone(660 + Math.min(600, G.combo * 22), 0.09, "square", 0.3);
-      tone(990 + Math.min(700, G.combo * 26), 0.13, "triangle", 0.2);
-    } else {
-      spark(p.x, p.y, 6, C.phosphor, 130, 0.4);
-      tone(300 + Math.min(560, G.combo * 18), 0.06, "square", 0.2);
-    }
-
-    if (G.charge >= 1 && G.overdrive <= 0) startOverdrive();
-
-    if (G.ringsPassed % 8 === 0) {
-      G.flash = 0.35; G.flashColor = C.phosphor;
-      note("SURGE · LEVEL " + level(), C.phosphor, 34);
-      tone(180, 0.3, "sawtooth", 0.22, 420);
-    }
-  }
-
-  function startOverdrive() {
-    G.overdrive = 4.5;
-    G.flash = 0.5; G.flashColor = C.amber;
-    G.shake += 10;
-    note("OVERDRIVE", C.amber, -70);
-    tone(220, 0.5, "sawtooth", 0.3, 880);
-    tone(330, 0.5, "square", 0.2, 1320);
-  }
-
-  function die() {
-    G.state = "dead";
-    G.deadAt = G.t;
-    G.shake = 26;
-    G.freeze = 0.16;
-    G.flash = 0.5; G.flashColor = C.alarm;
-    const p = playerPos();
-    spark(p.x, p.y, 46, C.alarm, 340, 0.95);
-    noise(0.55, 0.6);
-    tone(300, 0.5, "sawtooth", 0.3, 40);
-
-    save.runs++;
-    save.topCombo = Math.max(save.topCombo || 0, G.bestCombo);
-    const record = G.score > (save.best || 0);
-    if (record) save.best = G.score;
-    persist();
-
-    ui.oScore.textContent = G.score.toLocaleString();
-    ui.oRings.textContent = G.ringsPassed;
-    ui.oCombo.textContent = G.bestCombo;
-    ui.newBest.hidden = !record || G.score === 0;
-    ui.overPrompt.textContent = "Stand by";
-    ui.overPrompt.classList.add("wait");
-    ui.over.hidden = false;
-  }
-
-  // ------------------------------------------------------------------ update
-  function update(dt) {
-    G.t += dt;
-    G.sweep += dt * 0.42;
-    G.shake = Math.max(0, G.shake - dt * 60);
-    G.flash = Math.max(0, G.flash - dt * 1.9);
-
-    // particles + floating notes always run, even on the death screen
-    for (let i = G.sparks.length - 1; i >= 0; i--) {
-      const s = G.sparks[i];
-      s.life -= dt;
-      if (s.life <= 0) { G.sparks.splice(i, 1); continue; }
-      s.x += s.vx * dt; s.y += s.vy * dt;
-      s.vx *= 0.94; s.vy *= 0.94;
-    }
-    for (let i = G.notes.length - 1; i >= 0; i--) {
-      const n = G.notes[i];
-      n.life -= dt;
-      n.y -= dt * 26;
-      if (n.life <= 0) G.notes.splice(i, 1);
-    }
-
-    if (G.state === "dead" && G.t - G.deadAt > 0.75 && ui.overPrompt.classList.contains("wait")) {
-      ui.overPrompt.textContent = "Tap to re-enter orbit";
-      ui.overPrompt.classList.remove("wait");
-    }
-
-    if (G.state !== "play") return;
-
-    if (G.overdrive > 0) {
-      G.overdrive -= dt;
-      G.charge = clamp(G.overdrive / 4.5, 0, 1);
-      if (G.overdrive <= 0) { G.overdrive = 0; G.charge = 0; }
-    }
-
-    // player
-    const P = G.player;
-    P.a = norm(P.a + P.dir * spinRate() * dt);
-    const pp = playerPos();
-    P.trail.push({ x: pp.x, y: pp.y });
-    if (P.trail.length > 16) P.trail.shift();
-
-    // spawn
-    const lv = level();
-    const spacing = ringSpeed() * ringInterval();
-    const last = G.rings[G.rings.length - 1];
-    if (!last || last.r < R_MAX - spacing) spawnRing();
-
-    // rings
-    const band = RING_W / 2 + PLAYER_R;
-    for (let i = G.rings.length - 1; i >= 0; i--) {
-      const ring = G.rings[i];
-      ring.r -= ring.speed * dt;
-      ring.rot = norm(ring.rot + ring.rotSpeed * dt);
-
-      if (ring.r <= 4) { G.rings.splice(i, 1); continue; }
-
-      const crossing = Math.abs(ring.r - R_ORBIT) < band;
-
-      if (crossing && !ring.scored) {
-        if (G.overdrive > 0) {
-          // core burns the ring out of the sky
-          G.rings.splice(i, 1);
-          G.ringsPassed++;
-          G.combo++;
-          G.bestCombo = Math.max(G.bestCombo, G.combo);
-          G.score += 30 * multi();
-          G.shake += 5;
-          for (let k = 0; k < 10; k++) {
-            const a = rand(0, TAU);
-            spark(CX + Math.cos(a) * ring.r, CY + Math.sin(a) * ring.r, 3, C.amber, 200, 0.5);
-          }
-          tone(520 + Math.random() * 300, 0.07, "square", 0.24);
-          continue;
-        }
-
-        const pa = PLAYER_R / Math.max(1, ring.r);
-        let margin = -1;
-        for (const g of ring.gaps) {
-          const d = Math.abs(angDiff(P.a, g.c + ring.rot));
-          const m = (g.h - pa) - d;
-          if (m > margin) margin = m;
-        }
-        if (margin <= 0) { die(); return; }
-        ring.minMargin = Math.min(ring.minMargin, margin);
-      }
-
-      if (!ring.scored && ring.r < R_ORBIT - band) {
-        ring.scored = true;
-        onPass(ring, ring.minMargin < 0.15);
-      }
-    }
-
-    // collectibles
-    for (let i = G.stars.length - 1; i >= 0; i--) {
-      const s = G.stars[i];
-      s.r -= (58 + lv * 8) * dt;
-      s.spin += dt * 2.4;
-      if (s.r < 8) { G.stars.splice(i, 1); continue; }
-      if (Math.abs(s.r - R_ORBIT) < 18 && Math.abs(angDiff(P.a, s.a)) < 0.3) {
-        G.stars.splice(i, 1);
-        G.score += 75 * multi();
-        G.charge = clamp(G.charge + 0.1, 0, 1);
-        spark(CX + Math.cos(s.a) * R_ORBIT, CY + Math.sin(s.a) * R_ORBIT, 14, C.bone, 220, 0.55);
-        note("+" + 75 * multi(), C.bone, -12);
-        tone(880, 0.07, "triangle", 0.28);
-        tone(1320, 0.12, "sine", 0.2);
-        if (G.charge >= 1 && G.overdrive <= 0) startOverdrive();
-      }
-    }
-  }
-
-  // -------------------------------------------------------------------- draw
-  function ringArcs(ring) {
-    const gs = ring.gaps
-      .map(g => { const c = norm(g.c + ring.rot); return { s: c - g.h, e: c + g.h }; })
-      .sort((a, b) => a.s - b.s);
-    const arcs = [];
-    for (let i = 0; i < gs.length; i++) {
-      const from = gs[i].e;
-      const to   = (i === gs.length - 1) ? gs[0].s + TAU : gs[i + 1].s;
-      arcs.push([from, to]);
-    }
-    return arcs;
-  }
-
-  function draw() {
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-    // ground
-    ctx.fillStyle = C.ground;
-    ctx.fillRect(0, 0, W, H);
+    if(reveal !== pathsAt){ paths = buildPaths(reveal); pathsAt = reveal; }
 
     ctx.save();
-    if (G.shake > 0.2 && !reduceMotion) {
-      ctx.translate(rand(-G.shake, G.shake) * 0.4, rand(-G.shake, G.shake) * 0.4);
-    }
+    ctx.translate(cx, cy);
+    ctx.scale(R, R);
+    ctx.lineCap = "round";
 
-    // ---- scope background: concentric graticule + radar sweep
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(29,74,53,.55)";
-    for (let k = 1; k <= 5; k++) {
-      ctx.beginPath();
-      ctx.arc(CX, CY, R_MAX * (k / 5), 0, TAU);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = "rgba(29,74,53,.35)";
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * TAU;
-      ctx.beginPath();
-      ctx.moveTo(CX + Math.cos(a) * R_ORBIT * 0.4, CY + Math.sin(a) * R_ORBIT * 0.4);
-      ctx.lineTo(CX + Math.cos(a) * R_MAX, CY + Math.sin(a) * R_MAX);
-      ctx.stroke();
-    }
-
-    if (!reduceMotion) {
-      const sw = ctx.createConicGradient
-        ? ctx.createConicGradient(G.sweep, CX, CY)
-        : null;
-      if (sw) {
-        sw.addColorStop(0, "rgba(95,242,160,.10)");
-        sw.addColorStop(0.12, "rgba(95,242,160,0)");
-        sw.addColorStop(1, "rgba(95,242,160,0)");
-        ctx.fillStyle = sw;
-        ctx.beginPath();
-        ctx.arc(CX, CY, R_MAX, 0, TAU);
-        ctx.fill();
+    // the network you have already grown once, remembered in the substrate
+    if(gh > gr){
+      const gp = buildPaths(Math.floor(SEGS.length * gh));
+      ctx.strokeStyle = "rgba(120,105,80,.13)";
+      for(let d=0; d<gp.length; d++){
+        if(!gp[d]) continue;
+        ctx.lineWidth = ((7-d)*.4 + .5) / R;
+        ctx.stroke(gp[d]);
       }
     }
 
-    // ---- player orbit track
-    ctx.strokeStyle = G.overdrive > 0 ? "rgba(255,182,72,.55)" : "rgba(95,242,160,.28)";
-    ctx.setLineDash([2, 7]);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(CX, CY, R_ORBIT, 0, TAU);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ---- core
-    const corePulse = 1 + Math.sin(G.t * 3) * 0.07;
-    const coreR = R_ORBIT * 0.24 * corePulse;
-    const cg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR * 3);
-    const coreCol = G.overdrive > 0 ? "255,182,72" : "95,242,160";
-    cg.addColorStop(0, `rgba(${coreCol},.85)`);
-    cg.addColorStop(0.35, `rgba(${coreCol},.22)`);
-    cg.addColorStop(1, `rgba(${coreCol},0)`);
-    ctx.fillStyle = cg;
-    ctx.beginPath();
-    ctx.arc(CX, CY, coreR * 3, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = G.overdrive > 0 ? C.amber : C.phosphor;
-    ctx.beginPath();
-    ctx.arc(CX, CY, coreR * 0.5, 0, TAU);
-    ctx.fill();
-
-    // ---- rings
-    ctx.lineCap = "butt";
-    for (const ring of G.rings) {
-      const near = clamp(1 - (ring.r - R_ORBIT) / (R_MAX - R_ORBIT), 0.25, 1);
-      ctx.lineWidth = RING_W;
-      ctx.strokeStyle = C.amber;
-      ctx.globalAlpha = 0.35 + near * 0.65;
-      ctx.shadowBlur = 14 * near;
-      ctx.shadowColor = C.amber;
-      // two-gap rings read as a different material, not a different colour —
-      // alarm red stays reserved for the breach itself
-      if (ring.dashed) ctx.setLineDash([RING_W * 1.7, RING_W * 0.85]);
-      for (const [from, to] of ringArcs(ring)) {
-        ctx.beginPath();
-        ctx.arc(CX, CY, ring.r, from, to);
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
-      ctx.shadowBlur = 0;
-
-      // gap mouth ticks — read the opening early
-      ctx.globalAlpha = 0.5 + near * 0.5;
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = C.bone;
-      for (const g of ring.gaps) {
-        const c = g.c + ring.rot;
-        for (const edge of [c - g.h, c + g.h]) {
-          ctx.beginPath();
-          ctx.moveTo(CX + Math.cos(edge) * (ring.r - RING_W * 0.9), CY + Math.sin(edge) * (ring.r - RING_W * 0.9));
-          ctx.lineTo(CX + Math.cos(edge) * (ring.r + RING_W * 0.9), CY + Math.sin(edge) * (ring.r + RING_W * 0.9));
-          ctx.stroke();
-        }
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // ---- collectibles
-    for (const s of G.stars) {
-      const x = CX + Math.cos(s.a) * s.r, y = CY + Math.sin(s.a) * s.r;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(s.spin);
-      ctx.strokeStyle = C.bone;
-      ctx.fillStyle = "rgba(232,242,234,.16)";
-      ctx.lineWidth = 1.6;
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = C.bone;
-      ctx.beginPath();
-      const rr = PLAYER_R * 0.95;
-      for (let k = 0; k < 4; k++) {
-        const a = k * (TAU / 4);
-        const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
-        k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-      ctx.shadowBlur = 0;
-    }
-
-    // ---- player trail + body
-    if (G.state !== "menu") {
-      const T = G.player.trail;
-      ctx.lineCap = "round";
-      for (let i = 1; i < T.length; i++) {
-        const a = (i / T.length) * 0.5;
-        ctx.strokeStyle = `rgba(95,242,160,${a})`;
-        ctx.lineWidth = PLAYER_R * 1.5 * (i / T.length);
-        ctx.beginPath();
-        ctx.moveTo(T[i - 1].x, T[i - 1].y);
-        ctx.lineTo(T[i].x, T[i].y);
-        ctx.stroke();
-      }
-      if (G.state === "play") {
-        const p = playerPos();
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = G.overdrive > 0 ? C.amber : C.phosphor;
-        ctx.fillStyle = G.overdrive > 0 ? C.amber : C.phosphor;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, PLAYER_R, 0, TAU);
-        ctx.fill();
+    if(paths){
+      for(let d=0; d<paths.length; d++){
+        if(!paths[d]) continue;
+        const t = 1 - d/7;
+        ctx.strokeStyle = `rgba(127,212,168,${.20 + t*.5})`;
+        ctx.lineWidth = ((7-d)*.45 + .55) / R;
         ctx.shadowBlur = 0;
-        // spin-direction pip
-        ctx.fillStyle = C.ground;
-        ctx.beginPath();
-        ctx.arc(
-          p.x + Math.cos(G.player.a + G.player.dir * 1.2) * PLAYER_R * 0.45,
-          p.y + Math.sin(G.player.a + G.player.dir * 1.2) * PLAYER_R * 0.45,
-          PLAYER_R * 0.3, 0, TAU
-        );
-        ctx.fill();
+        ctx.stroke(paths[d]);
       }
     }
-
-    // ---- sparks
-    for (const s of G.sparks) {
-      ctx.globalAlpha = clamp(s.life / s.max, 0, 1);
-      ctx.fillStyle = s.color;
-      ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
-    }
-    ctx.globalAlpha = 1;
-
-    // ---- floating notes
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    for (const n of G.notes) {
-      ctx.globalAlpha = clamp(n.life / 0.9, 0, 1);
-      ctx.fillStyle = n.color;
-      ctx.font = `700 ${Math.max(12, R_MAX * 0.045)}px ${FONT}`;
-      ctx.fillText(n.text, n.x, n.y);
-    }
-    ctx.globalAlpha = 1;
-
     ctx.restore();
 
-    // ---- full-scope flash
-    if (G.flash > 0) {
-      ctx.globalAlpha = G.flash * 0.28;
-      ctx.fillStyle = G.flashColor;
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 1;
+    // glowing tips at the live edge
+    const nodeCount = Math.floor(NODES.length * gr);
+    const t = performance.now()/1000;
+    for(let i=Math.max(0,nodeCount-70); i<nodeCount; i++){
+      const n = NODES[i];
+      const x = cx + n.x*R, y = cy + n.y*R;
+      const p = .55 + .45*Math.sin(t*1.7 + i);
+      ctx.fillStyle = `rgba(127,212,168,${.25*p})`;
+      ctx.beginPath(); ctx.arc(x,y, 3.4, 0, TAU); ctx.fill();
+      ctx.fillStyle = `rgba(224,233,221,${.7*p})`;
+      ctx.beginPath(); ctx.arc(x,y, 1.15, 0, TAU); ctx.fill();
+    }
+
+    // fruiting bodies surface once there is something to show
+    const fb = Math.min(cnt("fruit"), 40);
+    for(let i=0;i<fb;i++){
+      const n = NODES[(i*37) % Math.max(1,nodeCount)];
+      if(!n) break;
+      const x = cx + n.x*R, y = cy + n.y*R;
+      ctx.fillStyle = "rgba(224,163,85,.75)";
+      ctx.beginPath(); ctx.arc(x, y, 2.6, 0, TAU); ctx.fill();
+    }
+
+    // core
+    const cg = ctx.createRadialGradient(cx,cy,0,cx,cy, R*.3);
+    cg.addColorStop(0, "rgba(127,212,168,.34)");
+    cg.addColorStop(1, "rgba(127,212,168,0)");
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(cx,cy, R*.3, 0, TAU); ctx.fill();
+
+    // click ripples
+    for(let i=pulses.length-1;i>=0;i--){
+      const p = pulses[i];
+      p.r += dt*260; p.life -= dt*1.5;
+      if(p.life <= 0){ pulses.splice(i,1); continue; }
+      ctx.strokeStyle = `rgba(127,212,168,${p.life*.4})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(cx,cy, p.r, 0, TAU); ctx.stroke();
+    }
+
+    // drifting spores
+    const want = Math.floor(6 + gr*40);
+    while(motes.length < want)
+      motes.push({ x:Math.random()*VW, y:Math.random()*VH,
+                   vx:(Math.random()-.5)*7, vy:-4-Math.random()*9,
+                   s:.6+Math.random()*1.5, a:.15+Math.random()*.35 });
+    while(motes.length > want) motes.pop();
+    for(const m of motes){
+      m.x += m.vx*dt; m.y += m.vy*dt;
+      if(m.y < -8){ m.y = VH+8; m.x = Math.random()*VW; }
+      if(m.x < -8) m.x = VW+8; else if(m.x > VW+8) m.x = -8;
+      ctx.fillStyle = `rgba(216,226,205,${m.a})`;
+      ctx.beginPath(); ctx.arc(m.x,m.y,m.s,0,TAU); ctx.fill();
     }
   }
 
-  // ---------------------------------------------------------------- hud sync
-  let lastHud = "";
-  function syncHud() {
-    const key = [G.state, G.score, G.ringsPassed, G.combo, save.best,
-                 Math.round(G.charge * 50), G.overdrive > 0].join("|");
-    if (key === lastHud) return;
-    lastHud = key;
+  /* ================================================================ render */
+  const genEls = new Map(), upEls = new Map(), adaptEls = new Map();
 
-    document.body.classList.toggle("paneled", G.state !== "play");
-
-    ui.score.textContent = G.score.toLocaleString();
-    ui.best.textContent  = (save.best || 0).toLocaleString();
-    ui.rings.textContent = G.ringsPassed;
-
-    const m = multi();
-    ui.chip.textContent = "×" + m + "   CHAIN " + G.combo;
-    ui.chip.classList.toggle("on", G.state === "play" && G.combo > 0);
-    ui.chip.classList.toggle("hot", m >= 4);
-
-    ui.fill.style.width = (G.charge * 100).toFixed(1) + "%";
-    const full = G.charge >= 1 || G.overdrive > 0;
-    ui.meter.classList.toggle("full", full);
-    ui.chargeState.textContent = G.overdrive > 0
-      ? "Overdrive " + G.overdrive.toFixed(1) + "s"
-      : G.charge > 0 ? Math.round(G.charge * 100) + "%" : "Idle";
-
-    ui.mBest.textContent  = (save.best || 0).toLocaleString();
-    ui.mRuns.textContent  = save.runs || 0;
-    ui.mCombo.textContent = save.topCombo || 0;
+  function makeRow(cls){
+    const b = document.createElement("button");
+    b.className = "row " + cls;
+    b.innerHTML =
+      '<span class="prog"></span>' +
+      '<span class="rName"></span>' +
+      '<span class="rCost"></span>' +
+      '<span class="rFlavor"></span>' +
+      '<span class="rEffect"></span>';
+    return b;
   }
 
-  // -------------------------------------------------------------------- loop
-  let last = performance.now();
-  function frame(now) {
-    let dt = (now - last) / 1000;
+  function buildGens(){
+    const list = $("genList");
+    list.innerHTML = "";
+    genEls.clear();
+    for(const g of GENS){
+      const el = makeRow("gen");
+      el.addEventListener("click", () => buyGen(g));
+      list.appendChild(el);
+      genEls.set(g.id, el);
+    }
+  }
+
+  // a generator is visible once it is within reach, so the list unfolds
+  const genVisible = g => {
+    const i = GENS.indexOf(g);
+    if(i === 0) return true;
+    return cnt(GENS[i-1].id) >= 1 || S.allTime >= g.base * .35;
+  };
+
+  function renderGens(){
+    // the first tier still out of reach is shown dimmed, so the ladder ahead
+    // is always visible — an empty list gives nothing to want
+    const teaser = GENS.find(g => !genVisible(g));
+
+    for(const g of GENS){
+      const el = genEls.get(g.id);
+      const vis = genVisible(g);
+      const tease = !vis && g === teaser;
+      el.style.display = (vis || tease) ? "" : "none";
+      if(!vis){
+        if(!tease) continue;
+        el.classList.add("locked");
+        el.classList.remove("can");
+        el.disabled = true;
+        el.querySelector(".rName").textContent = g.name;
+        el.querySelector(".rCost").className = "rCost no";
+        el.querySelector(".rCost").textContent = fmt(g.base);
+        el.querySelector(".rFlavor").textContent = g.flavor;
+        el.querySelector(".rEffect").textContent = "Still out of reach.";
+        el.querySelector(".prog").style.width = "0%";
+        continue;
+      }
+      el.classList.remove("locked");
+
+      const n = buyCount(g), c = costOf(g, n), have = cnt(g.id);
+      const can = S.biomass >= c;
+      el.classList.toggle("can", can);
+      el.disabled = !can;
+
+      const nextMs = MILESTONES.find(m => m > have);
+      el.querySelector(".rName").innerHTML =
+        g.name + (have ? '<span class="own">' + fmt(have) + "</span>" : "") +
+        (nextMs && have >= 5 ? '<span class="ms">×2 at ' + nextMs + "</span>" : "");
+
+      el.querySelector(".rCost").className = "rCost" + (can ? "" : " no");
+      el.querySelector(".rCost").innerHTML =
+        fmt(c) + (n > 1 ? '<span class="n">buy ' + n + "</span>" : "");
+
+      el.querySelector(".rFlavor").textContent = have ? "" : g.flavor;
+      el.querySelector(".rEffect").textContent = have
+        ? fmt(genRate(g)) + "/sec  ·  " + fmt(genRate(g)/have) + " each"
+        : fmt(g.rate * globalMult()) + "/sec each";
+      el.querySelector(".prog").style.width = clamp(S.biomass/c*100, 0, 100) + "%";
+    }
+  }
+
+  function buildUps(){
+    const list = $("upgList");
+    list.innerHTML = "";
+    upEls.clear();
+    for(const u of UPGRADES){
+      const el = makeRow("up");
+      el.addEventListener("click", () => buyUp(u));
+      list.appendChild(el);
+      upEls.set(u.id, el);
+    }
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.id = "upEmpty";
+    e.textContent = "Nothing to refine yet. Grow the network and come back.";
+    list.appendChild(e);
+  }
+
+  function renderUps(){
+    let shown = 0;
+    for(const u of UPGRADES){
+      const el = upEls.get(u.id);
+      const vis = !has(u.id) && u.req(S);
+      el.style.display = vis ? "" : "none";
+      if(!vis) continue;
+      shown++;
+      const can = S.biomass >= u.cost;
+      el.classList.toggle("can", can);
+      el.disabled = !can;
+      el.querySelector(".rName").textContent = u.name;
+      el.querySelector(".rCost").className = "rCost" + (can ? "" : " no");
+      el.querySelector(".rCost").textContent = fmt(u.cost);
+      el.querySelector(".rFlavor").textContent = "";
+      el.querySelector(".rEffect").textContent = u.desc;
+      el.querySelector(".prog").style.width = clamp(S.biomass/u.cost*100,0,100) + "%";
+    }
+    $("upEmpty").style.display = shown ? "none" : "";
+    $("pip-refine").classList.toggle("on",
+      UPGRADES.some(u => !has(u.id) && u.req(S) && S.biomass >= u.cost));
+  }
+
+  function buildAdapts(){
+    const list = $("adaptList");
+    list.innerHTML = "";
+    adaptEls.clear();
+    for(const a of ADAPTS){
+      const el = makeRow("adapt");
+      el.addEventListener("click", () => buyAdapt(a));
+      list.appendChild(el);
+      adaptEls.set(a.id, el);
+    }
+  }
+
+  function renderAdapts(){
+    for(const a of ADAPTS){
+      const el = adaptEls.get(a.id);
+      const own = adapted(a.id);
+      const can = !own && S.spores >= a.cost;
+      el.classList.toggle("owned", own);
+      el.classList.toggle("can", can);
+      el.disabled = own || !can;
+      el.querySelector(".rName").textContent = a.name;
+      el.querySelector(".rCost").className = "rCost" + (can || own ? "" : " no");
+      el.querySelector(".rCost").innerHTML = own
+        ? "held"
+        : fmt(a.cost) + '<span class="n">spores</span>';
+      el.querySelector(".rFlavor").textContent = "";
+      el.querySelector(".rEffect").textContent = a.desc;
+      el.querySelector(".prog").style.width = own ? "0%" : clamp(S.spores/a.cost*100,0,100) + "%";
+    }
+  }
+
+  function renderBloom(){
+    const y = sporeYield();
+    $("yield").textContent = fmt(y);
+    $("bloomBtn").disabled = y <= 0;
+    $("bloomBtn").textContent = y > 0 ? "Release " + fmt(y) + " spores" : "Not ready to release";
+    $("bloomBody").textContent = y > 0
+      ? "Releasing clears your biomass, your network and every refinement. Spores, adaptations and observations survive — and each lifetime spore permanently raises all yields."
+      : "You need 500K biomass in a single bloom before the network can sporulate. " +
+        (S.earned > 0 ? "You are at " + fmt(S.earned) + "." : "");
+    $("sporeBal").textContent  = fmt(S.spores);
+    $("sporeTot").textContent  = fmt(S.sporesTotal);
+    $("sporeMult").textContent = "+" + Math.round((sporeMult()-1)*100) + "%";
+    $("pip-bloom").classList.toggle("on",
+      y > 0 || ADAPTS.some(a => !adapted(a.id) && S.spores >= a.cost));
+    renderAdapts();
+  }
+
+  function renderAch(){
+    const list = $("achList");
+    list.innerHTML = "";
+    for(const a of ACHS){
+      const got = S.achs.includes(a.id);
+      const d = document.createElement("div");
+      d.className = "ach" + (got ? " got" : "");
+      d.innerHTML = '<span class="achDot"></span><span><span class="achName">' +
+        (got ? a.name : "Unrecorded") + '</span><br><span class="achDesc">' + a.desc + "</span></span>";
+      list.appendChild(d);
+    }
+    $("achCount").textContent = S.achs.length + " of " + ACHS.length;
+  }
+
+  function renderStats(){
+    const rows = [
+      ["Biomass this bloom", fmt(S.earned)],
+      ["Biomass all time",   fmt(S.allTime)],
+      ["Per second",         fmt(rate())],
+      ["Per digest",         fmt(clickYield())],
+      ["Times digested",     fmt(S.clicks)],
+      ["Blooms released",    fmt(S.blooms)],
+      ["Lifetime spores",    fmt(S.sporesTotal)],
+      ["Playing for",        fmtTime(Date.now() - S.started)]
+    ];
+    $("stats").innerHTML = rows.map(([k,v]) =>
+      '<div class="stat"><dt>'+k+'</dt><dd>'+v+"</dd></div>").join("");
+  }
+
+  function renderAll(){
+    renderGens(); renderUps(); renderBloom(); renderStats();
+  }
+
+  /* =============================================================== wiring */
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected","false"));
+      document.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
+      t.setAttribute("aria-selected","true");
+      $("pane-" + t.dataset.tab).classList.add("on");
+      renderAll();
+    });
+  });
+
+  $("bulk").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if(!b) return;
+    S.bulk = parseInt(b.dataset.b, 10);
+    [...$("bulk").children].forEach(c =>
+      c.setAttribute("aria-pressed", c === b ? "true" : "false"));
+    renderGens();
+  });
+
+  $("digest").addEventListener("click", () => digest(false));
+  $("bloomBtn").addEventListener("click", bloom);
+
+  $("wipe").addEventListener("click", () => {
+    if(!confirm("Erase everything — spores, adaptations and observations included?")) return;
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    S = fresh();
+    recompute(); renderAll(); renderAch();
+  });
+
+  document.addEventListener("visibilitychange", () => { if(document.hidden) save(); });
+  window.addEventListener("beforeunload", save);
+
+  /* ================================================================= boot */
+  buildNetwork();
+  buildGens(); buildUps(); buildAdapts();
+  load();
+  recompute();
+  resize();
+  offlineCatchUp();
+  renderAll(); renderAch();
+  if(S.clicks > 0) $("hint").style.opacity = "0";
+
+  let last = performance.now(), uiAcc = 0, saveAcc = 0, autoAcc = 0;
+  function loop(now){
+    let dt = (now - last)/1000;
     last = now;
-    dt = Math.min(0.034, dt);
+    dt = Math.min(.25, dt);
 
-    if (G.freeze > 0) { G.freeze -= dt; dt *= 0.16; }
+    const r = rate();
+    if(r > 0) earn(r * dt);
 
-    update(dt);
-    draw();
-    syncHud();
-    requestAnimationFrame(frame);
+    if(adapted("autoly")){
+      autoAcc += dt;
+      const ticks = Math.floor(autoAcc * 5);
+      if(ticks > 0){ autoAcc -= ticks/5; for(let i=0;i<ticks;i++) digest(true); }
+    }
+
+    $("bm").textContent   = fmt(S.biomass);
+    $("rate").textContent = fmt(r);
+    $("depth").textContent = "Network " + Math.round(growth()*100) + "%";
+
+    drawNet(dt);
+
+    uiAcc += dt;
+    if(uiAcc > .25){ uiAcc = 0; checkAchs(); renderAll(); }
+
+    saveAcc += dt;
+    if(saveAcc > 10){ saveAcc = 0; save(); }
+
+    requestAnimationFrame(loop);
   }
-
-  syncHud();
-  requestAnimationFrame(frame);
+  requestAnimationFrame(loop);
 })();
 </script>
